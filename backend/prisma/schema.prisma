@@ -1,0 +1,96 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  createdAt DateTime @default(now())
+  orders    Order[]
+}
+
+model Ingredient {
+  id              Int                    @id @default(autoincrement())
+  name            String                 @unique
+  costPerGram     Float                  // Costo en MXN por gramo
+  kcalPerGram     Float                  // Kilocalorías por gramo
+  proteinPerGram  Float                  // Proteína en g por gramo de ingrediente
+  carbsPerGram    Float                  // Carbohidratos en g por gramo de ingrediente
+  fatPerGram      Float                  // Grasa en g por gramo de ingrediente
+  minGrams        Int                    @default(0)
+  maxGrams        Int                    @default(300)
+  recipeItems     RecipeIngredient[]
+  orderItems      OrderItemIngredient[]
+}
+
+model BaseRecipe {
+  id          Int                @id @default(autoincrement())
+  name        String             @unique
+  description String?
+  imageUrl    String?
+  fixedCost   Float              @default(20.0) // Costo fijo base en MXN (p.ej. salsa, empaque)
+  createdAt   DateTime           @default(now())
+  ingredients RecipeIngredient[]
+  orders      Order[]
+}
+
+model RecipeIngredient {
+  id           Int        @id @default(autoincrement())
+  recipe       BaseRecipe @relation(fields: [recipeId], references: [id])
+  recipeId     Int
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id])
+  ingredientId Int
+  defaultGrams Int        // Gramaje por defecto sugerido
+
+  @@unique([recipeId, ingredientId])
+}
+
+model Order {
+  id         Int         @id @default(autoincrement())
+  status     OrderStatus @default(PENDING)
+  totalPrice Float
+  totalKcal  Float
+  recipe     BaseRecipe  @relation(fields: [recipeId], references: [id])
+  recipeId   Int
+  user       User?       @relation(fields: [userId], references: [id])
+  userId     Int?
+  items      OrderItem[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+}
+
+model OrderItem {
+  id          Int                   @id @default(autoincrement())
+  order       Order                 @relation(fields: [orderId], references: [id])
+  orderId     Int
+  ingredients OrderItemIngredient[]
+}
+
+model OrderItemIngredient {
+  id           Int        @id @default(autoincrement())
+  orderItem    OrderItem  @relation(fields: [orderItemId], references: [id])
+  orderItemId  Int
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id])
+  ingredientId Int
+  grams        Int        // Gramaje final elegido por el usuario
+}
+
+enum OrderStatus {
+  PENDING
+  PREPARING
+  READY
+  DELIVERED
+  CANCELLED
+}
