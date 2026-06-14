@@ -1,0 +1,9 @@
+{
+  "type": "module",
+  "scripts": {
+    "seed": "node scripts/seedFirestore.js"
+  },
+  "dependencies": {
+    "firebase": "^12.14.0"
+  }
+}
