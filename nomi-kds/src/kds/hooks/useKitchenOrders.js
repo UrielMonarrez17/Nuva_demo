@@ -1,7 +1,7 @@
 // src/kds/hooks/useKitchenOrders.js
 
 import { useState, useEffect } from "react";
-import { db } from "../../firebase/firebaseConfig";
+import { db } from "../../firebase/firebaseconfig";
 import {
   collection,
   query,
@@ -25,7 +25,7 @@ import {
  *   markAsReady: (orderId: string) => Promise<void>
  * }}
  */
-export function useKitchenOrders() {
+export function useKitchenOrders(restaurantId = null) {
   const [pendingOrders, setPendingOrders] = useState([]);
   const [readyOrders, setReadyOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -59,12 +59,20 @@ export function useKitchenOrders() {
     const unsubscribePending = onSnapshot(
       pendingQuery,
       (snapshot) => {
-        const orders = snapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-          // Convertir Timestamp de Firestore a Date de JS
-          createdAt: docSnap.data().createdAt?.toDate() ?? new Date(),
-        }));
+        let orders = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            ...data,
+            // Soporte mixto: Firestore Timestamp (toDate) o ISO String del cliente
+            createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt || Date.now()),
+          };
+        });
+        
+        if (restaurantId && restaurantId !== "all") {
+          orders = orders.filter(order => order.items?.some(item => item.restaurantId === restaurantId));
+        }
+        
         setPendingOrders(orders);
         pendingLoaded = true;
         checkAllLoaded();
@@ -80,12 +88,20 @@ export function useKitchenOrders() {
     const unsubscribeReady = onSnapshot(
       readyQuery,
       (snapshot) => {
-        const orders = snapshot.docs.map((docSnap) => ({
-          id: docSnap.id,
-          ...docSnap.data(),
-          createdAt: docSnap.data().createdAt?.toDate() ?? new Date(),
-          readyAt: docSnap.data().readyAt?.toDate() ?? null,
-        }));
+        let orders = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data();
+          return {
+            id: docSnap.id,
+            ...data,
+            createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt || Date.now()),
+            readyAt: data.readyAt ? (data.readyAt?.toDate ? data.readyAt.toDate() : new Date(data.readyAt)) : null,
+          };
+        });
+        
+        if (restaurantId && restaurantId !== "all") {
+          orders = orders.filter(order => order.items?.some(item => item.restaurantId === restaurantId));
+        }
+        
         // Mostrar solo las últimas 10 órdenes listas para no saturar la pantalla
         setReadyOrders(orders.slice(0, 10));
         readyLoaded = true;
@@ -102,7 +118,7 @@ export function useKitchenOrders() {
       unsubscribePending();
       unsubscribeReady();
     };
-  }, []);
+  }, [restaurantId]);
 
   /**
    * Cambia el status de una orden de PENDING a READY en Firestore.

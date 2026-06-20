@@ -28,6 +28,12 @@ const INGREDIENT_IDS = {
   pollo: "ing_pollo",
   arroz: "ing_arroz",
   aguacate: "ing_aguacate",
+  salmon: "ing_salmon",
+  quinoa: "ing_quinoa",
+  tofu: "ing_tofu",
+  brocoli: "ing_brocoli",
+  manzana: "ing_manzana",
+  avena: "ing_avena",
 };
 
 const ingredients = [
@@ -90,13 +96,93 @@ const baseRecipes = [
         INGREDIENT_IDS.pollo,
         INGREDIENT_IDS.arroz,
         INGREDIENT_IDS.aguacate,
+        INGREDIENT_IDS.brocoli,
       ],
       description:
-        "Tazón de arroz con pollo glaseado en salsa teriyaki y aguacate fresco.",
+        "Tazón de arroz integral caliente, pechuga de pollo tierna bañado en salsa teriyaki baja en sodio, aguacate y brócoli fresco.",
       estimatedPrepTime: 12,
       tags: ["alto-proteina", "sin-gluten", "popular"],
+      restaurantId: "rest_nativa",
     },
   },
+  {
+    id: "recipe_salmon_quinoa",
+    data: {
+      name: "Salmón Bowl & Quinoa",
+      imageUrl: "https://images.unsplash.com/photo-1467003909585-2f8a72700288?w=800&q=80",
+      fixedCost: 20,
+      allowedIngredients: [
+        INGREDIENT_IDS.salmon,
+        INGREDIENT_IDS.quinoa,
+        INGREDIENT_IDS.aguacate,
+        INGREDIENT_IDS.brocoli,
+      ],
+      description: "Salmón a la plancha sobre una base de quinoa ligera, acompañado de rebanadas de aguacate fresco y brócoli.",
+      estimatedPrepTime: 15,
+      tags: ["Omega 3", "Keto", "Premium"],
+      restaurantId: "rest_green",
+    },
+  },
+  {
+    id: "recipe_wrap_fit",
+    data: {
+      name: "Wrap Proteico de Tofu",
+      imageUrl: "https://images.unsplash.com/photo-1626700051175-6518c4793f4f?w=800&q=80",
+      fixedCost: 10,
+      allowedIngredients: [
+        INGREDIENT_IDS.tofu,
+        INGREDIENT_IDS.quinoa,
+        INGREDIENT_IDS.aguacate,
+      ],
+      description: "Una tortilla integral grande rellena de quinoa sazonada, tofu marinado y aguacate cremoso.",
+      estimatedPrepTime: 8,
+      tags: ["Vegano", "Fibra Alta"],
+      restaurantId: "rest_nativa",
+    },
+  },
+  {
+    id: "recipe_avena_fruta",
+    data: {
+      name: "Bowl de Avena y Manzana",
+      imageUrl: "https://images.unsplash.com/photo-1517673132405-a56a62b18caf?w=800&q=80",
+      fixedCost: 12,
+      allowedIngredients: [
+        INGREDIENT_IDS.avena,
+        INGREDIENT_IDS.manzana,
+      ],
+      description: "Bowl de avena calientita con trozos de manzana fresca, ideal para un desayuno energético.",
+      estimatedPrepTime: 10,
+      tags: ["Desayuno", "Energía", "Dulce"],
+      restaurantId: "rest_green",
+    },
+  },
+];
+
+const restaurants = [
+  {
+    id: "rest_nativa",
+    data: {
+      name: "Nativa Dark Kitchen",
+      address: "Condesa, CDMX",
+      lat: 19.414,
+      lng: -99.171,
+      imageUrl: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&q=80",
+      rating: 4.8,
+      deliveryTime: "25-35 min"
+    }
+  },
+  {
+    id: "rest_green",
+    data: {
+      name: "Green Lab Co.",
+      address: "Polanco, CDMX",
+      lat: 19.432,
+      lng: -99.192,
+      imageUrl: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=500&q=80",
+      rating: 4.9,
+      deliveryTime: "30-45 min"
+    }
+  }
 ];
 
 // ─── FUNCIONES DE SEED ────────────────────────────────────────────────────────
@@ -125,6 +211,18 @@ async function seedBaseRecipes(batch) {
   }
 }
 
+async function seedRestaurants(batch) {
+  console.log("🏪 Preparando restaurantes...");
+
+  for (const rest of restaurants) {
+    const ref = db.collection("restaurants").doc(rest.id);
+    batch.set(ref, rest.data);
+    console.log(
+      `   ✔ Restaurante preparado: ${rest.data.name} (${rest.id})`
+    );
+  }
+}
+
 async function runSeed() {
   console.log("🚀 Iniciando seed de Firestore para Nomi...\n");
 
@@ -133,6 +231,7 @@ async function runSeed() {
 
     await seedIngredients(batch);
     await seedBaseRecipes(batch);
+    await seedRestaurants(batch);
 
     console.log("\n⏳ Enviando datos a Firestore...");
     await batch.commit();
@@ -140,6 +239,7 @@ async function runSeed() {
     console.log("\n✅ Seed completado exitosamente.");
     console.log("   Colección 'ingredients': 3 documentos creados.");
     console.log("   Colección 'base_recipes': 1 documento creado.");
+    console.log("   Colección 'restaurants': 2 documentos creados.");
 
     process.exit(0);
   } catch (error) {

@@ -37,7 +37,13 @@ function formatTime(date) {
 
 // ─── SUBCOMPONENTES ───────────────────────────────────────────────────────────
 
-function KDSHeader({ pendingCount, readyCount, currentTime }) {
+function KDSHeader({ pendingCount, readyCount, currentTime, selectedRestaurant, onSelectRestaurant }) {
+  const MOCK_RESTAURANTS = [
+    { id: "all", name: "Todas las cocinas" },
+    { id: "rest_nativa", name: "Nativa Dark Kitchen" },
+    { id: "rest_green", name: "Green Lab Co." }
+  ];
+
   return (
     <div style={styles.header}>
       <div style={styles.headerLeft}>
@@ -45,7 +51,16 @@ function KDSHeader({ pendingCount, readyCount, currentTime }) {
         <span style={styles.headerSubtitle}>Kitchen Display System</span>
       </div>
       <div style={styles.headerCenter}>
-        <span style={styles.headerTime}>{currentTime}</span>
+        <select 
+          style={styles.restaurantSelect}
+          value={selectedRestaurant}
+          onChange={(e) => onSelectRestaurant(e.target.value)}
+        >
+          {MOCK_RESTAURANTS.map(r => (
+            <option key={r.id} value={r.id}>{r.name}</option>
+          ))}
+        </select>
+        <span style={{...styles.headerTime, marginLeft: 20}}>{currentTime}</span>
       </div>
       <div style={styles.headerRight}>
         <div style={styles.statBadge}>
@@ -143,6 +158,12 @@ function PendingOrderCard({ order, onMarkReady }) {
           <span style={{ color: urgencyColor, fontSize: 11 }}>min</span>
         </div>
       </div>
+      
+      {order.address && (
+        <div style={styles.addressSection}>
+          📍 <strong>Entrega:</strong> {order.address}
+        </div>
+      )}
 
       {/* ── Nombre del platillo ── */}
       {order.items?.map((item, itemIndex) => (
@@ -247,8 +268,9 @@ function ErrorScreen({ message }) {
 // ─── PANTALLA PRINCIPAL KDS ───────────────────────────────────────────────────
 
 export default function KitchenDashboard() {
+  const [selectedRestaurant, setSelectedRestaurant] = useState("all");
   const { pendingOrders, readyOrders, loading, error, markAsReady } =
-    useKitchenOrders();
+    useKitchenOrders(selectedRestaurant);
 
   // Reloj en tiempo real para el header
   const [currentTime, setCurrentTime] = useState(
@@ -284,6 +306,8 @@ export default function KitchenDashboard() {
         pendingCount={pendingOrders.length}
         readyCount={readyOrders.length}
         currentTime={currentTime}
+        selectedRestaurant={selectedRestaurant}
+        onSelectRestaurant={setSelectedRestaurant}
       />
 
       {/* ── Layout de dos columnas ── */}
@@ -411,6 +435,19 @@ const styles = {
     position: "absolute",
     left: "50%",
     transform: "translateX(-50%)",
+    display: "flex",
+    alignItems: "center"
+  },
+  restaurantSelect: {
+    backgroundColor: "#1C1C1C",
+    color: "#F97316",
+    border: "1px solid #333",
+    padding: "6px 12px",
+    borderRadius: "8px",
+    fontSize: "14px",
+    fontWeight: "600",
+    outline: "none",
+    cursor: "pointer"
   },
   headerTime: {
     fontSize: 28,
@@ -537,6 +574,15 @@ const styles = {
     borderRadius: 10,
     padding: "8px 14px",
     minWidth: 56,
+  },
+  addressSection: {
+    backgroundColor: "rgba(249, 115, 22, 0.05)",
+    border: "1px solid rgba(249, 115, 22, 0.2)",
+    color: "#D4D4D8",
+    fontSize: 13,
+    padding: "8px 12px",
+    borderRadius: 8,
+    marginTop: -4,
   },
 
   // Item de la orden

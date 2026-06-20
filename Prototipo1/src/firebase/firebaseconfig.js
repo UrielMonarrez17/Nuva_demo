@@ -1,6 +1,5 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
@@ -18,6 +17,16 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
-export const analytics = getAnalytics(app);
+
+// Analytics is lazy-loaded to avoid crashing in localhost/dev environments
+export const getAnalyticsInstance = async () => {
+  try {
+    const { getAnalytics } = await import("firebase/analytics");
+    return getAnalytics(app);
+  } catch (e) {
+    console.warn("Firebase Analytics not available in this environment.");
+    return null;
+  }
+};
 
 export default app;

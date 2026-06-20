@@ -1,6 +1,6 @@
 // src/hooks/usePricingCalculator.js
 
-import { useState, useEffect, useCallback } from "react";
+import { useMemo } from "react";
 
 // ─── CONSTANTES DE NEGOCIO ────────────────────────────────────────────────────
 
@@ -114,55 +114,40 @@ const INITIAL_STATE = {
  * }}
  */
 export function usePricingCalculator(selectedIngredients = [], fixedCost = 0) {
-  const [result, setResult] = useState(INITIAL_STATE);
+  // Calculamos los valores de forma síncrona durante el render.
+  // Esto evita loops infinitos causados por dependencias de objetos.
+  if (!selectedIngredients || selectedIngredients.length === 0) {
+    return { ...INITIAL_STATE, recalculate: () => {} };
+  }
 
-  const calculate = useCallback(() => {
-    // Si no hay ingredientes seleccionados, regresamos el estado inicial
-    if (!selectedIngredients || selectedIngredients.length === 0) {
-      setResult(INITIAL_STATE);
-      return;
-    }
+  const ingredientCost = calcIngredientCost(selectedIngredients);
+  const productionCost = ingredientCost + fixedCost;
+  const finalPrice = calcFinalPrice(ingredientCost, fixedCost);
+  const rawMacros = calcMacros(selectedIngredients);
+  const macros = roundMacros(rawMacros);
 
-    const ingredientCost = calcIngredientCost(selectedIngredients);
-    const productionCost = ingredientCost + fixedCost;
-    const finalPrice = calcFinalPrice(ingredientCost, fixedCost);
-    const rawMacros = calcMacros(selectedIngredients);
-    const macros = roundMacros(rawMacros);
-
-    // Breakdown: detalle individual por ingrediente, útil para mostrar en la UI
-    // y para guardar en Firestore dentro de orders.items.customizedIngredients
-    const breakdown = selectedIngredients.map((ingredient) => {
-      const grams = ingredient.grams ?? 0;
-      return {
-        id: ingredient.id,
-        name: ingredient.name,
-        grams,
-        subtotalCost: Math.round(grams * ingredient.costPerGram * 100) / 100,
-        macros: roundMacros({
-          protein: grams * (ingredient.proteinPerGram ?? 0),
-          carbs: grams * (ingredient.carbPerGram ?? 0),
-          fats: grams * (ingredient.fatPerGram ?? 0),
-          kcal: grams * (ingredient.kcalPerGram ?? 0),
-        }),
-      };
-    });
-
-    setResult({
-      ingredientCost: Math.round(ingredientCost * 100) / 100,
-      productionCost: Math.round(productionCost * 100) / 100,
-      finalPrice: Math.round(finalPrice * 100) / 100,
-      macros,
-      breakdown,
-    });
-  }, [selectedIngredients, fixedCost]);
-
-  // Se recalcula automáticamente cada vez que cambian los gramos o el fixedCost
-  useEffect(() => {
-    calculate();
-  }, [calculate]);
+  const breakdown = selectedIngredients.map((ingredient) => {
+    const grams = ingredient.grams ?? 0;
+    return {
+      id: ingredient.id,
+      name: ingredient.name,
+      grams,
+      subtotalCost: Math.round(grams * ingredient.costPerGram * 100) / 100,
+      macros: roundMacros({
+        protein: grams * (ingredient.proteinPerGram ?? 0),
+        carbs: grams * (ingredient.carbPerGram ?? 0),
+        fats: grams * (ingredient.fatPerGram ?? 0),
+        kcal: grams * (ingredient.kcalPerGram ?? 0),
+      }),
+    };
+  });
 
   return {
-    ...result,
-    recalculate: calculate,
+    ingredientCost: Math.round(ingredientCost * 100) / 100,
+    productionCost: Math.round(productionCost * 100) / 100,
+    finalPrice: Math.round(finalPrice * 100) / 100,
+    macros,
+    breakdown,
+    recalculate: () => {}, // mock function for backwards compatibility
   };
 }
