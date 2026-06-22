@@ -119,6 +119,39 @@ const FALLBACK_RECIPES = {
     estimatedPrepTime: 8,
     category: "Wrap",
     tags: ["Vegano", "Fibra Alta"]
+  },
+  recipe_pollo_brocoli: {
+    id: "recipe_pollo_brocoli",
+    name: "Pollo con Brócoli y Arroz",
+    imageUrl: "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?w=800&q=80",
+    fixedCost: 18,
+    allowedIngredients: ["ing_pollo", "ing_brocoli", "ing_arroz"],
+    description: "Clásico plato de pollo a la plancha acompañado de brócoli al vapor y arroz blanco, perfecto para ganar masa muscular.",
+    estimatedPrepTime: 15,
+    category: "Plato Fuerte",
+    tags: ["Clásico", "Alto en Proteína"]
+  },
+  recipe_bowl_vegano: {
+    id: "recipe_bowl_vegano",
+    name: "Bowl Vegano de Tofu y Quinoa",
+    imageUrl: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=800&q=80",
+    fixedCost: 16,
+    allowedIngredients: ["ing_tofu", "ing_quinoa", "ing_brocoli", "ing_aguacate"],
+    description: "Bowl nutritivo con tofu crujiente, base de quinoa, brócoli fresco y rebanadas de aguacate.",
+    estimatedPrepTime: 12,
+    category: "Bowl",
+    tags: ["Vegano", "Ligero"]
+  },
+  recipe_avena_horneada: {
+    id: "recipe_avena_horneada",
+    name: "Avena Horneada con Manzana",
+    imageUrl: "https://images.unsplash.com/photo-1600336153113-d66c79de3f90?w=800&q=80",
+    fixedCost: 14,
+    allowedIngredients: ["ing_avena", "ing_manzana"],
+    description: "Deliciosa avena horneada con toques de canela y trozos de manzana caramelizada. Un desayuno reconfortante.",
+    estimatedPrepTime: 20,
+    category: "Desayuno",
+    tags: ["Dulce", "Fibra"]
   }
 };
 

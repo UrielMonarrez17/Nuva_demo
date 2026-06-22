@@ -4,24 +4,25 @@ import { IonPage, IonContent, IonIcon } from "@ionic/react";
 import { timeOutline, checkmarkCircleOutline, restaurantOutline, bicycleOutline } from "ionicons/icons";
 
 export default function OrdersScreen() {
-  const { orders } = useApp();
+  const { orders, confirmOrderDelivery } = useApp();
 
-  // Active orders are those that are not 'DELIVERED' or 'COMPLETED' (in our current logic we have PENDING and READY)
-  const activeOrders = orders.filter(o => o.status === "PENDING" || o.status === "READY");
-  const pastOrders = orders.filter(o => o.status !== "PENDING" && o.status !== "READY");
+  // Active orders are anything not DELIVERED
+  const activeOrders = orders.filter(o => o.status !== "DELIVERED");
+  const pastOrders = orders.filter(o => o.status === "DELIVERED");
 
   const getStatusInfo = (status) => {
     switch (status) {
       case "PENDING":
         return { text: "Recibido en Cocina", icon: timeOutline, color: "#64748B", progress: 25 };
       case "PREPARING":
-        return { text: "Preparando", icon: restaurantOutline, color: "#3B82F6", progress: 50 };
+      case "COOKING":
+        return { text: "Preparando tu pedido", icon: restaurantOutline, color: "#3B82F6", progress: 50 };
       case "READY":
-        return { text: "En Camino", icon: bicycleOutline, color: "#F97316", progress: 75 };
+        return { text: "En Camino / Listo", icon: bicycleOutline, color: "#F97316", progress: 75 };
       case "DELIVERED":
         return { text: "Entregado", icon: checkmarkCircleOutline, color: "#34D399", progress: 100 };
       default:
-        return { text: "Procesando", icon: timeOutline, color: "#64748B", progress: 10 };
+        return { text: "Procesando", icon: timeOutline, color: "#64748B", progress: 15 };
     }
   };
 
@@ -56,7 +57,7 @@ export default function OrdersScreen() {
                     </div>
 
                     <div style={styles.itemsList}>
-                      {order.items.map((item, idx) => (
+                      {order.items?.map((item, idx) => (
                         <div key={idx} style={styles.itemRow}>
                           <span style={styles.itemQty}>{item.quantity || 1}x</span>
                           <span style={styles.itemName}>{item.recipeName}</span>
@@ -65,8 +66,30 @@ export default function OrdersScreen() {
                     </div>
 
                     <div style={styles.cardFooter}>
-                      <span style={styles.totalText}>Total: ${order.totalPrice?.toFixed(2)}</span>
-                      <span style={styles.etaText}>Llegada estimada: 30-45 min</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, textAlign: 'left' }}>
+                        <span style={styles.totalText}>Total: ${order.totalPrice?.toFixed(2)}</span>
+                        <span style={styles.metaText}>💳 Pago: {order.paymentMethod || "Tarjeta"}</span>
+                        {order.distance > 0 && (
+                          <span style={styles.metaText}>📍 Distancia: {order.distance} km</span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+                        <span style={styles.etaText}>
+                          ⏱️ {order.status === "READY" ? "En reparto" : `Llega en ~${order.deliveryTime || 30} min`}
+                        </span>
+                        {order.status === "READY" && (
+                          <button 
+                            onClick={() => {
+                              if (window.confirm("¿Confirmas que has recibido tu pedido?")) {
+                                confirmOrderDelivery(order.id);
+                              }
+                            }}
+                            style={styles.confirmDeliveryBtn}
+                          >
+                            Recibido
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -88,7 +111,7 @@ export default function OrdersScreen() {
                     <span style={styles.totalText}>${order.totalPrice?.toFixed(2)}</span>
                   </div>
                   <div style={styles.itemsList}>
-                    {order.items.map((item, idx) => (
+                    {order.items?.map((item, idx) => (
                       <div key={idx} style={styles.itemRow}>
                         <span style={styles.itemName}>{item.recipeName}</span>
                       </div>
@@ -212,5 +235,20 @@ const styles = {
   etaText: {
     fontSize: 12,
     color: "#94A3B8",
+  },
+  metaText: {
+    fontSize: 11,
+    color: "#64748B",
+  },
+  confirmDeliveryBtn: {
+    backgroundColor: "#34D399",
+    color: "#0F0F10",
+    border: "none",
+    borderRadius: 8,
+    padding: "6px 12px",
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+    transition: "opacity 0.2s",
   }
 };

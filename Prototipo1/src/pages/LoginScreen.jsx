@@ -9,7 +9,8 @@ export default function LoginScreen() {
   const { login, loginWithGoogle, registerClient, registerNutriologist } = useApp();
   const history = useHistory();
 
-  const [activeTab, setActiveTab] = useState("login"); // "login" | "signup_client" | "signup_nutri"
+  const [mode, setMode] = useState("login"); // "login" | "signup"
+  const [accountType, setAccountType] = useState("client"); // "client" | "nutriologist"
   
   // Form fields
   const [name, setName] = useState("");
@@ -34,27 +35,31 @@ export default function LoginScreen() {
     }
 
     let res;
-    if (activeTab === "login") {
+    if (mode === "login") {
       res = await login(email, password);
-    } else if (activeTab === "signup_client") {
+    } else {
       if (!name) {
         setErrorMsg("Por favor, ingresa tu nombre.");
         setLoading(false);
         return;
       }
-      res = await registerClient(name, email, password);
-    } else {
-      if (!name || !license || !phone) {
-        setErrorMsg("Completa tu nombre, cédula y teléfono.");
-        setLoading(false);
-        return;
+      if (accountType === "client") {
+        res = await registerClient(name, email, password);
+      } else {
+        if (!license || !phone) {
+          setErrorMsg("Completa tu cédula profesional y teléfono de contacto.");
+          setLoading(false);
+          return;
+        }
+        res = await registerNutriologist(name, email, password, license, phone);
       }
-      res = await registerNutriologist(name, email, password, license, phone);
     }
 
     setLoading(false);
 
     if (res.success) {
+      // Success feedback
+      alert(mode === "login" ? "¡Sesión iniciada con éxito!" : "¡Registro completado exitosamente!");
       history.push("/home");
     } else {
       setErrorMsg(res.error || "Ocurrió un error. Intenta de nuevo.");
@@ -67,22 +72,10 @@ export default function LoginScreen() {
     const res = await loginWithGoogle();
     setLoading(false);
     if (res.success) {
+      alert("¡Sesión iniciada con Google!");
       history.push("/home");
     } else if (res.error) {
       setErrorMsg(res.error);
-    }
-  };
-
-  const handleDemoAccess = async (type) => {
-    setErrorMsg("");
-    setLoading(true);
-    const demoEmail = type === "nutri" ? "demo.nutriologo@nomi.com" : "demo.cliente@nomi.com";
-    const res = await login(demoEmail, "123456");
-    setLoading(false);
-    if (res.success) {
-      history.push("/home");
-    } else {
-      setErrorMsg("Error al acceder con cuenta demo.");
     }
   };
 
@@ -107,61 +100,49 @@ export default function LoginScreen() {
           {/* Form Card */}
           <div style={styles.formCard}>
             
-            {/* Sliding Tabs */}
-            <div style={styles.tabsContainer}>
-              <button
-                style={{
-                  ...styles.tabButton,
-                  ...(activeTab === "login" ? styles.activeTabButton : {}),
-                }}
-                onClick={() => { setActiveTab("login"); setErrorMsg(""); }}
-              >
-                Entrar
-              </button>
-              <button
-                style={{
-                  ...styles.tabButton,
-                  ...(activeTab === "signup_client" ? styles.activeTabButton : {}),
-                }}
-                onClick={() => { setActiveTab("signup_client"); setErrorMsg(""); }}
-              >
-                Cliente
-              </button>
-              <button
-                style={{
-                  ...styles.tabButton,
-                  ...(activeTab === "signup_nutri" ? styles.activeTabButton : {}),
-                }}
-                onClick={() => { setActiveTab("signup_nutri"); setErrorMsg(""); }}
-              >
-                Nutriólogo
-              </button>
-            </div>
+            <h2 style={styles.formTitle}>
+              {mode === "login" ? "Iniciar Sesión" : "Crear una Cuenta"}
+            </h2>
 
             {/* Error Banner */}
             {errorMsg && <div style={styles.errorBanner}>⚠️ {errorMsg}</div>}
 
             {/* Auth Form */}
             <form onSubmit={handleAuth} style={styles.form}>
-              {(activeTab === "signup_client" || activeTab === "signup_nutri") && (
-                <div style={styles.inputGroup}>
-                  <label style={styles.label}>Nombre Completo</label>
-                  <input
-                    type="text"
-                    placeholder="Ej. Dr. Alejandro Gómez"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    style={styles.input}
-                    required
-                  />
-                </div>
+              
+              {mode === "signup" && (
+                <>
+                  <div style={styles.inputGroup}>
+                    <label style={styles.label}>Tipo de Perfil</label>
+                    <select
+                      value={accountType}
+                      onChange={(e) => setAccountType(e.target.value)}
+                      style={styles.select}
+                    >
+                      <option value="client">Cliente / Paciente</option>
+                      <option value="nutriologist">Nutriólogo Clínico</option>
+                    </select>
+                  </div>
+
+                  <div style={styles.inputGroup}>
+                    <label style={styles.label}>Nombre Completo</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Carlos Mendoza"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      style={styles.input}
+                      required
+                    />
+                  </div>
+                </>
               )}
 
               <div style={styles.inputGroup}>
                 <label style={styles.label}>Correo Electrónico</label>
                 <input
                   type="email"
-                  placeholder="nombre@ejemplo.com"
+                  placeholder="correo@ejemplo.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   style={styles.input}
@@ -181,7 +162,7 @@ export default function LoginScreen() {
                 />
               </div>
 
-              {activeTab === "signup_nutri" && (
+              {mode === "signup" && accountType === "nutriologist" && (
                 <>
                   <div style={styles.inputGroup}>
                     <label style={styles.label}>Cédula Profesional</label>
@@ -212,14 +193,31 @@ export default function LoginScreen() {
               <button type="submit" style={styles.submitBtn} disabled={loading}>
                 {loading ? (
                   <IonSpinner name="crescent" color="dark" style={{ height: 20 }} />
-                ) : activeTab === "login" ? (
+                ) : mode === "login" ? (
                   "Iniciar Sesión"
-                ) : activeTab === "signup_client" ? (
-                  "Registrarme"
                 ) : (
-                  "Enviar Postulación"
+                  "Registrarme"
                 )}
               </button>
+
+              {/* Mode Toggle Button */}
+              <div style={styles.toggleContainer}>
+                {mode === "login" ? (
+                  <p style={styles.toggleText}>
+                    ¿No tienes cuenta?{" "}
+                    <span style={styles.toggleLink} onClick={() => { setMode("signup"); setErrorMsg(""); }}>
+                      Regístrate aquí
+                    </span>
+                  </p>
+                ) : (
+                  <p style={styles.toggleText}>
+                    ¿Ya tienes una cuenta?{" "}
+                    <span style={styles.toggleLink} onClick={() => { setMode("login"); setErrorMsg(""); }}>
+                      Inicia sesión aquí
+                    </span>
+                  </p>
+                )}
+              </div>
 
               {/* Divider */}
               <div style={styles.orDivider}>
@@ -245,32 +243,6 @@ export default function LoginScreen() {
               </button>
             </form>
           </div>
-
-          {/* Quick Demos Section for Reviewers */}
-          <div style={styles.demoSection}>
-            <div style={styles.demoDivider}>
-              <span style={styles.demoDividerText}>Acceso Rápido Demo</span>
-            </div>
-            <p style={styles.demoCaption}>
-              Prueba los dos flujos al instante sin registrarte:
-            </p>
-            <div style={styles.demoButtonsRow}>
-              <button
-                style={{ ...styles.demoBtn, border: "1px solid #F97316", color: "#F97316" }}
-                onClick={() => handleDemoAccess("client")}
-                disabled={loading}
-              >
-                👤 Demo Cliente
-              </button>
-              <button
-                style={{ ...styles.demoBtn, border: "1px solid #A78BFA", color: "#A78BFA" }}
-                onClick={() => handleDemoAccess("nutri")}
-                disabled={loading}
-              >
-                🩺 Demo Nutriólogo
-              </button>
-            </div>
-          </div>
         </div>
       </IonContent>
     </IonPage>
@@ -283,19 +255,18 @@ const styles = {
     minHeight: "100vh",
     maxWidth: 480,
     margin: "0 auto",
-    padding: "48px 24px 64px 24px",
+    padding: "36px 20px 48px 20px",
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     display: "flex",
     flexDirection: "column",
-    justifyContent: "space-between",
+    justifyContent: "center",
   },
   header: {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     textAlign: "center",
-    marginBottom: 32,
-    marginTop: 16,
+    marginBottom: 24,
   },
   logoPill: {
     display: "flex",
@@ -305,7 +276,7 @@ const styles = {
     border: "1px solid rgba(249, 115, 22, 0.25)",
     borderRadius: 20,
     padding: "6px 16px",
-    marginBottom: 20,
+    marginBottom: 16,
   },
   logoText: {
     color: "#F97316",
@@ -326,15 +297,15 @@ const styles = {
   },
   title: {
     color: "#F8FAFC",
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: 700,
     lineHeight: 1.2,
-    margin: "0 0 12px 0",
+    margin: "0 0 8px 0",
     letterSpacing: "-0.02em",
   },
   subtitle: {
     color: "#94A3B8",
-    fontSize: 14,
+    fontSize: 13,
     lineHeight: 1.5,
     margin: 0,
     padding: "0 12px",
@@ -346,29 +317,13 @@ const styles = {
     border: "1px solid #222227",
     boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
   },
-  tabsContainer: {
-    display: "flex",
-    backgroundColor: "#0B0B0C",
-    borderRadius: 14,
-    padding: 4,
-    marginBottom: 24,
-    border: "1px solid #1A1A1E",
-  },
-  tabButton: {
-    flex: 1,
-    padding: "10px 4px",
-    backgroundColor: "transparent",
-    color: "#94A3B8",
-    border: "none",
-    borderRadius: 10,
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: "pointer",
-    transition: "all 0.25s ease",
-  },
-  activeTabButton: {
-    backgroundColor: "#F97316",
-    color: "#000000",
+  formTitle: {
+    color: "#F8FAFC",
+    fontSize: 20,
+    fontWeight: 700,
+    marginBottom: 20,
+    marginTop: 0,
+    textAlign: "left",
   },
   errorBanner: {
     backgroundColor: "rgba(239, 68, 68, 0.1)",
@@ -406,9 +361,16 @@ const styles = {
     fontSize: 14,
     outline: "none",
     transition: "border-color 0.2s ease",
-    ":focus": {
-      borderColor: "#F97316",
-    },
+  },
+  select: {
+    backgroundColor: "#0B0B0C",
+    border: "1px solid #222227",
+    borderRadius: 12,
+    color: "#F8FAFC",
+    padding: "14px 16px",
+    fontSize: 14,
+    outline: "none",
+    cursor: "pointer",
   },
   submitBtn: {
     backgroundColor: "#F97316",
@@ -425,48 +387,20 @@ const styles = {
     justifyContent: "center",
     transition: "opacity 0.2s ease",
   },
-  demoSection: {
-    marginTop: 40,
+  toggleContainer: {
     textAlign: "center",
+    marginTop: 8,
   },
-  demoDivider: {
-    position: "relative",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
-  },
-  demoDividerText: {
-    backgroundColor: "#0B0B0C",
-    padding: "0 12px",
-    color: "#475569",
-    fontSize: 11,
-    textTransform: "uppercase",
-    letterSpacing: "0.1em",
-    fontWeight: 600,
-  },
-  demoCaption: {
+  toggleText: {
     color: "#94A3B8",
-    fontSize: 12,
-    margin: "0 0 16px 0",
-  },
-  demoButtonsRow: {
-    display: "flex",
-    gap: 12,
-    justifyContent: "center",
-  },
-  demoBtn: {
-    flex: 1,
-    backgroundColor: "rgba(255,255,255,0.02)",
-    padding: "12px 8px",
-    borderRadius: 12,
     fontSize: 13,
-    fontWeight: 600,
+    margin: 0,
+  },
+  toggleLink: {
+    color: "#F97316",
+    fontWeight: 700,
     cursor: "pointer",
-    transition: "background 0.2s ease",
-    ":hover": {
-      backgroundColor: "rgba(255,255,255,0.05)",
-    },
+    textDecoration: "underline",
   },
   orDivider: {
     display: "flex",

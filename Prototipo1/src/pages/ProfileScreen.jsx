@@ -1,6 +1,6 @@
 // src/pages/ProfileScreen.jsx
 
-import React from "react";
+import React, { useState } from "react";
 import { useApp } from "../context/AppContext";
 import { useHistory } from "react-router-dom";
 import { IonPage, IonContent, IonIcon } from "@ionic/react";
@@ -21,19 +21,34 @@ export default function ProfileScreen() {
     changeRoleDualMode, 
     orders, 
     addresses, 
-    logout, 
-    verifyLicenseDemo 
+    logout,
+    registerRestaurant
   } = useApp();
   
   const history = useHistory();
+  const [isDevAdmin, setIsDevAdmin] = useState(false);
+  const [showRestModal, setShowRestModal] = useState(false);
+  
+  // Form states
+  const [restName, setRestName] = useState("");
+  const [restAddress, setRestAddress] = useState("");
+  const [restLat, setRestLat] = useState("19.414");
+  const [restLng, setRestLng] = useState("-99.171");
+  const [restImage, setRestImage] = useState("");
+  const [restRating, setRestRating] = useState("4.8");
+  const [restDeliveryTime, setRestDeliveryTime] = useState("20-30 min");
+  const [loadingRest, setLoadingRest] = useState(false);
 
   const handleLogout = async () => {
-    await logout();
-    history.push("/login");
+    if (window.confirm("¿Seguro que deseas cerrar tu sesión?")) {
+      await logout();
+      history.push("/login");
+    }
   };
 
   const isNutriologist = userProfile?.role === "nutriologist";
   const isVerified = userProfile?.status === "verified";
+  const isAdmin = userProfile?.role === "admin" || isDevAdmin;
 
   return (
     <IonPage>
@@ -76,25 +91,21 @@ export default function ProfileScreen() {
                     {isVerified ? "Cédula Verificada" : "Pendiente de Cédula"}
                   </span>
                 )}
-              </div>
-            </div>
-          </div>
 
-          {/* Verification Bypass Helper (Only visible for pending nutriologists) */}
-          {isNutriologist && !isVerified && (
-            <div style={styles.verificationPromo}>
-              <div style={styles.promoIcon}>🩺</div>
-              <div>
-                <h3 style={styles.promoTitle}>Verifica tu perfil profesional</h3>
-                <p style={styles.promoText}>
-                  Como nutriólogo registrado, necesitas verificar tu cédula para poder recetar platos a tus pacientes.
-                </p>
-                <button style={styles.promoBtn} onClick={verifyLicenseDemo}>
-                  Verificar Cédula Ahora (Prueba)
+                <button 
+                  type="button" 
+                  onClick={() => setIsDevAdmin(!isDevAdmin)} 
+                  style={{
+                    ...styles.devAdminBtn,
+                    backgroundColor: isDevAdmin ? "rgba(52, 211, 153, 0.2)" : "rgba(255,255,255,0.05)",
+                    color: isDevAdmin ? "#34D399" : "#64748B"
+                  }}
+                >
+                  {isDevAdmin ? "Admin Activo" : "Activar Admin Demo"}
                 </button>
               </div>
             </div>
-          )}
+          </div>
 
           {/* Dual Mode Switch (Only for Nutriologists) */}
           {isNutriologist && (
@@ -149,7 +160,7 @@ export default function ProfileScreen() {
                   <div style={{...styles.iconWrapper, backgroundColor: "rgba(249, 115, 22, 0.1)", color: "#F97316"}}>
                     <IonIcon icon={documentTextOutline} />
                   </div>
-                  <span>Buzón Médico / Recetas</span>
+                  <span>Buzón Médico / Recetas y Recomendaciones</span>
                 </div>
                 <IonIcon icon={chevronForwardOutline} style={styles.chevron} />
               </div>
@@ -176,7 +187,146 @@ export default function ProfileScreen() {
             </div>
           </div>
 
+          {/* Admin Panel */}
+          {isAdmin && (
+            <div style={styles.section}>
+              <h3 style={styles.sectionTitle}>Panel de Administrador</h3>
+              <p style={styles.sectionDesc}>Funciones de administración global de la plataforma.</p>
+              
+              <div style={styles.menuItem} onClick={() => setShowRestModal(true)}>
+                <div style={styles.menuItemLeft}>
+                  <div style={{...styles.iconWrapper, backgroundColor: "rgba(52, 211, 153, 0.1)", color: "#34D399"}}>
+                    🏢
+                  </div>
+                  <span>Registrar Nuevo Restaurante</span>
+                </div>
+                <IonIcon icon={chevronForwardOutline} style={styles.chevron} />
+              </div>
+            </div>
+          )}
 
+          {/* Register Restaurant Modal */}
+          {showRestModal && (
+            <div style={styles.modalOverlay}>
+              <div style={styles.modalCard}>
+                <div style={styles.modalHeader}>
+                  <h3 style={styles.modalTitle}>Registrar Restaurante</h3>
+                  <button style={styles.closeBtn} onClick={() => {
+                    if (window.confirm("¿Seguro que deseas salir? Los cambios no guardados se perderán.")) {
+                      setShowRestModal(false);
+                    }
+                  }}>✕</button>
+                </div>
+
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!restName || !restAddress) {
+                    alert("Por favor completa los campos obligatorios.");
+                    return;
+                  }
+                  if (window.confirm("¿Confirmas que deseas registrar este restaurante?")) {
+                    setLoadingRest(true);
+                    const res = await registerRestaurant(restName, restAddress, restLat, restLng, restImage, restRating, restDeliveryTime);
+                    setLoadingRest(false);
+                    if (res.success) {
+                      alert("¡Restaurante registrado con éxito!");
+                      setRestName("");
+                      setRestAddress("");
+                      setRestImage("");
+                      setShowRestModal(false);
+                    } else {
+                      alert("Error al registrar restaurante.");
+                    }
+                  }
+                }} style={styles.modalForm}>
+                  
+                  <div style={styles.formGroup}>
+                    <label style={styles.formLabel}>Nombre del Restaurante</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Katsu Healthy Bowls"
+                      value={restName}
+                      onChange={(e) => setRestName(e.target.value)}
+                      style={styles.formInput}
+                      required
+                    />
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.formLabel}>Dirección física</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Col. Roma Norte, CDMX"
+                      value={restAddress}
+                      onChange={(e) => setRestAddress(e.target.value)}
+                      style={styles.formInput}
+                      required
+                    />
+                  </div>
+
+                  <div style={styles.row}>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.formLabel}>Latitud (Mapa)</label>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        value={restLat}
+                        onChange={(e) => setRestLat(e.target.value)}
+                        style={styles.formInput}
+                      />
+                    </div>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.formLabel}>Longitud (Mapa)</label>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        value={restLng}
+                        onChange={(e) => setRestLng(e.target.value)}
+                        style={styles.formInput}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.formLabel}>URL de Imagen de portada</label>
+                    <input
+                      type="text"
+                      placeholder="https://images.unsplash.com/..."
+                      value={restImage}
+                      onChange={(e) => setRestImage(e.target.value)}
+                      style={styles.formInput}
+                    />
+                  </div>
+
+                  <div style={styles.row}>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.formLabel}>Calificación inicial</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={restRating}
+                        onChange={(e) => setRestRating(e.target.value)}
+                        style={styles.formInput}
+                      />
+                    </div>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.formLabel}>Tiempo promedio</label>
+                      <input
+                        type="text"
+                        value={restDeliveryTime}
+                        onChange={(e) => setRestDeliveryTime(e.target.value)}
+                        style={styles.formInput}
+                      />
+                    </div>
+                  </div>
+
+                  <button type="submit" style={styles.modalSubmitBtn} disabled={loadingRest}>
+                    {loadingRest ? "Registrando..." : "Registrar Restaurante"}
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
 
           {/* Bottom navigation padding */}
           <div style={{ height: 100 }} />
@@ -265,6 +415,7 @@ const styles = {
     flexWrap: "wrap",
     gap: 6,
     marginTop: 6,
+    alignItems: "center"
   },
   roleBadge: {
     fontSize: 9,
@@ -282,38 +433,14 @@ const styles = {
     textTransform: "uppercase",
     letterSpacing: "0.05em",
   },
-  verificationPromo: {
-    backgroundColor: "rgba(167, 139, 250, 0.08)",
-    border: "1px solid rgba(167, 139, 250, 0.2)",
-    borderRadius: 20,
-    padding: "16px",
-    display: "flex",
-    gap: 14,
-    marginBottom: 24,
-  },
-  promoIcon: {
-    fontSize: 28,
-  },
-  promoTitle: {
-    fontSize: 14,
+  devAdminBtn: {
+    fontSize: 9,
     fontWeight: 700,
-    color: "#A78BFA",
-    margin: "0 0 4px 0",
-  },
-  promoText: {
-    fontSize: 11,
-    color: "#94A3B8",
-    lineHeight: 1.4,
-    margin: "0 0 12px 0",
-  },
-  promoBtn: {
-    backgroundColor: "#A78BFA",
-    color: "#000000",
-    border: "none",
-    borderRadius: 10,
-    padding: "8px 16px",
-    fontSize: 11,
-    fontWeight: 700,
+    borderRadius: 6,
+    padding: "3px 8px",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+    border: "1px dashed rgba(255,255,255,0.1)",
     cursor: "pointer",
   },
   dualModeContainer: {
@@ -326,11 +453,13 @@ const styles = {
     textTransform: "uppercase",
     letterSpacing: "0.08em",
     margin: "0 0 4px 0",
+    textAlign: "left",
   },
   sectionDesc: {
     fontSize: 12,
     color: "#94A3B8",
     margin: "0 0 14px 0",
+    textAlign: "left",
   },
   toggleRow: {
     display: "flex",
@@ -377,12 +506,14 @@ const styles = {
     fontWeight: 700,
     color: "#F8FAFC",
     display: "block",
+    textAlign: "left",
   },
   addrSub: {
     fontSize: 11,
     color: "#64748B",
     marginTop: 2,
     display: "block",
+    textAlign: "left",
   },
   activeLabel: {
     marginLeft: "auto",
@@ -393,76 +524,6 @@ const styles = {
     padding: "2px 8px",
     borderRadius: 5,
     textTransform: "uppercase",
-  },
-  emptyOrders: {
-    backgroundColor: "#131316",
-    border: "1px dashed #222227",
-    borderRadius: 16,
-    padding: "24px",
-    textAlign: "center",
-    color: "#64748B",
-    fontSize: 13,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 12,
-  },
-  emptyOrdersIcon: {
-    fontSize: 24,
-  },
-  ordersList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-    marginTop: 12,
-  },
-  orderCard: {
-    backgroundColor: "#131316",
-    border: "1px solid #222227",
-    borderRadius: 20,
-    padding: "16px",
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
-  },
-  orderHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  orderDate: {
-    fontSize: 10,
-    color: "#64748B",
-  },
-  orderItemsTitle: {
-    fontSize: 14,
-    fontWeight: 700,
-    margin: "4px 0 0 0",
-    color: "#F8FAFC",
-  },
-  orderPrice: {
-    fontSize: 14,
-    fontWeight: 700,
-    color: "#F97316",
-  },
-  orderFooter: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    fontSize: 11,
-    color: "#94A3B8",
-    borderTop: "1px solid #222227",
-    paddingTop: 10,
-  },
-  orderAddress: {
-    textOverflow: "ellipsis",
-    overflow: "hidden",
-    whiteSpace: "nowrap",
-    maxWidth: 200,
-  },
-  orderMacros: {
-    color: "#64748B",
   },
   menuItem: {
     display: "flex",
@@ -493,5 +554,99 @@ const styles = {
   chevron: {
     color: "#64748B",
     fontSize: 20,
+  },
+
+  // Modal styles
+  modalOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    zIndex: 1000,
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backdropFilter: 'blur(8px)',
+    padding: '20px'
+  },
+  modalCard: {
+    backgroundColor: '#131316',
+    border: '1px solid #222227',
+    width: '100%',
+    maxWidth: '440px',
+    maxHeight: '90vh',
+    borderRadius: '24px',
+    padding: '24px',
+    overflowY: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '20px',
+    boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6)'
+  },
+  modalHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottom: '1px solid #222227',
+    paddingBottom: '12px'
+  },
+  modalTitle: {
+    fontSize: '18px',
+    fontWeight: 700,
+    color: '#FFF',
+    margin: 0
+  },
+  closeBtn: {
+    backgroundColor: 'transparent',
+    border: 'none',
+    color: '#6B6B6B',
+    fontSize: '18px',
+    cursor: 'pointer',
+    padding: '4px',
+    borderRadius: '4px',
+    transition: 'color 0.2s',
+  },
+  modalForm: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px'
+  },
+  formGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    textAlign: 'left',
+  },
+  formLabel: {
+    fontSize: '12px',
+    fontWeight: 600,
+    color: '#94A3B8'
+  },
+  formInput: {
+    backgroundColor: '#0B0B0C',
+    border: '1px solid #222227',
+    borderRadius: '10px',
+    padding: '12px 14px',
+    color: '#FFF',
+    fontSize: '14px',
+    outline: 'none',
+    transition: 'border-color 0.2s',
+  },
+  row: {
+    display: 'flex',
+    gap: '12px'
+  },
+  modalSubmitBtn: {
+    backgroundColor: '#F97316',
+    color: '#000',
+    border: 'none',
+    borderRadius: '12px',
+    padding: '14px',
+    fontSize: '14px',
+    fontWeight: 700,
+    cursor: 'pointer',
+    marginTop: '10px',
   }
 };

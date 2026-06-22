@@ -20,7 +20,9 @@ import {
   query,
   where,
   onSnapshot,
-  serverTimestamp
+  serverTimestamp,
+  updateDoc,
+  deleteDoc
 } from "firebase/firestore";
 
 const AppContext = createContext(null);
@@ -217,6 +219,42 @@ const MOCK_RECIPES = [
     category: "Desayuno",
     restaurantId: "rest_green",
     tags: ["Desayuno", "Energía", "Dulce"]
+  },
+  {
+    id: "recipe_pollo_brocoli",
+    name: "Pollo con Brócoli y Arroz",
+    imageUrl: "https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?w=800&q=80",
+    fixedCost: 18,
+    allowedIngredients: ["ing_pollo", "ing_brocoli", "ing_arroz"],
+    description: "Clásico plato de pollo a la plancha acompañado de brócoli al vapor y arroz blanco, perfecto para ganar masa muscular.",
+    estimatedPrepTime: 15,
+    category: "Plato Fuerte",
+    restaurantId: "rest_nativa",
+    tags: ["Clásico", "Alto en Proteína"]
+  },
+  {
+    id: "recipe_bowl_vegano",
+    name: "Bowl Vegano de Tofu y Quinoa",
+    imageUrl: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=800&q=80",
+    fixedCost: 16,
+    allowedIngredients: ["ing_tofu", "ing_quinoa", "ing_brocoli", "ing_aguacate"],
+    description: "Bowl nutritivo con tofu crujiente, base de quinoa, brócoli fresco y rebanadas de aguacate.",
+    estimatedPrepTime: 12,
+    category: "Bowl",
+    restaurantId: "rest_green",
+    tags: ["Vegano", "Ligero"]
+  },
+  {
+    id: "recipe_avena_horneada",
+    name: "Avena Horneada con Manzana",
+    imageUrl: "https://images.unsplash.com/photo-1600336153113-d66c79de3f90?w=800&q=80",
+    fixedCost: 14,
+    allowedIngredients: ["ing_avena", "ing_manzana"],
+    description: "Deliciosa avena horneada con toques de canela y trozos de manzana caramelizada. Un desayuno reconfortante.",
+    estimatedPrepTime: 20,
+    category: "Desayuno",
+    restaurantId: "rest_green",
+    tags: ["Dulce", "Fibra"]
   }
 ];
 
@@ -233,6 +271,7 @@ export function AppProvider({ children }) {
   const [patients, setPatients] = useState([]);
   const [prescriptions, setPrescriptions] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [nutritionalPlan, setNutritionalPlan] = useState(null);
   
   // Navigation states
   const [activeRole, setActiveRole] = useState("client"); // For dual-mode (client vs nutriologist)
@@ -311,6 +350,7 @@ export function AppProvider({ children }) {
     let unsubPrescriptions;
     let unsubPatients;
     let unsubOrders;
+    let unsubPlans;
 
     try {
       // 1. Sync recipes & ingredients (read-only for normal users)
@@ -339,26 +379,38 @@ export function AppProvider({ children }) {
       const ordersQuery = query(collection(db, "orders"), where("userId", "==", currentUser.uid));
       unsubOrders = onSnapshot(ordersQuery, (snapshot) => {
         const oList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        // Sort by date
-        oList.sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        // Sort by date (handles strings and standard formats)
+        oList.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
         setOrders(oList);
       }, err => console.log("Firebase orders listen error:", err));
 
-      // 3. Sync prescriptions
+      // 3. Sync prescriptions & plans
       if (userProfile.role === "client") {
         // Patients see recipes sent to their email
         const presQuery = query(collection(db, "prescriptions"), where("patientEmail", "==", userProfile.email));
         unsubPrescriptions = onSnapshot(presQuery, (snapshot) => {
           const pList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          pList.sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+          pList.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
           setPrescriptions(pList);
+        });
+
+        // Patients see their nutritional plan
+        const plansQuery = query(collection(db, "nutritional_plans"), where("patientEmail", "==", userProfile.email));
+        unsubPlans = onSnapshot(plansQuery, (snapshot) => {
+          if (!snapshot.empty) {
+            const pList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            pList.sort((a,b) => new Date(b.endDate) - new Date(a.endDate));
+            setNutritionalPlan(pList[0]); // Active plan (newest end date)
+          } else {
+            setNutritionalPlan(null);
+          }
         });
       } else if (userProfile.role === "nutriologist") {
         // Nutriologists see recipes they sent
         const presQuery = query(collection(db, "prescriptions"), where("nutriologistId", "==", currentUser.uid));
         unsubPrescriptions = onSnapshot(presQuery, (snapshot) => {
           const pList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          pList.sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+          pList.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
           setPrescriptions(pList);
         });
 
@@ -381,6 +433,7 @@ export function AppProvider({ children }) {
       if (unsubPrescriptions) unsubPrescriptions();
       if (unsubPatients) unsubPatients();
       if (unsubOrders) unsubOrders();
+      if (unsubPlans) unsubPlans();
     };
   }, [currentUser?.uid, userProfile?.role, userProfile?.email]);
 
@@ -394,23 +447,6 @@ export function AppProvider({ children }) {
       return { success: true };
     } catch (error) {
       console.error("Login failed:", error);
-      // Let's add a demo-login fallback for reviewer convenience!
-      if (email.includes("demo")) {
-        const dummyUser = {
-          uid: "demo_uid_" + (email.includes("nutri") ? "nutri" : "client"),
-          email: email,
-          name: email.includes("nutri") ? "Dra. Sofía Ramos" : "Uriel Monarrez",
-          role: email.includes("nutri") ? "nutriologist" : "client",
-          status: email.includes("nutri") ? "verified" : "active",
-          professionalLicense: email.includes("nutri") ? "12345678" : null,
-          contactPhone: "555-123-4567"
-        };
-        setCurrentUser({ uid: dummyUser.uid, email: dummyUser.email });
-        setUserProfile(dummyUser);
-        setActiveRole(dummyUser.role);
-        setLoading(false);
-        return { success: true, isDemo: true };
-      }
       setLoading(false);
       return { success: false, error: error.message };
     }
@@ -517,19 +553,7 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Verify license instantly (Bypass/Demo helper)
-  const verifyLicenseDemo = async () => {
-    if (!currentUser || !userProfile) return;
-    const updatedProfile = { ...userProfile, status: "verified" };
-    setUserProfile(updatedProfile);
-    
-    try {
-      const userDocRef = doc(db, "users", currentUser.uid);
-      await setDoc(userDocRef, { status: "verified" }, { merge: true });
-    } catch (e) {
-      console.log("Mock verify license done locally.");
-    }
-  };
+
 
   // Logout
   const logout = async () => {
@@ -572,8 +596,8 @@ export function AppProvider({ children }) {
     setCart([]);
   };
 
-  // Place Order
-  const placeOrder = async (addressStr) => {
+  // Place Order (includes simulated paymentMethod, distance & deliveryTime calculations)
+  const placeOrder = async (addressStr, paymentMethod = "Tarjeta de Crédito", distance = 0, deliveryTime = 30) => {
     if (!currentUser || cart.length === 0) return { success: false };
     
     const totalPrice = cart.reduce((acc, item) => acc + item.finalPrice, 0);
@@ -588,7 +612,7 @@ export function AppProvider({ children }) {
       userId: currentUser.uid,
       userName: userProfile?.name || currentUser.email,
       status: "PENDING",
-      totalPrice,
+      totalPrice: totalPrice + (totalPrice > 0 ? 35 : 0), // Include delivery fee
       totalMacros,
       items: cart.map(item => {
         const recipe = recipes.find(r => r.id === item.recipeId);
@@ -606,6 +630,9 @@ export function AppProvider({ children }) {
         };
       }),
       address: addressStr,
+      paymentMethod,
+      distance: parseFloat(distance) || 0,
+      deliveryTime: parseInt(deliveryTime) || 30,
       createdAt: new Date().toISOString()
     };
 
@@ -622,15 +649,15 @@ export function AppProvider({ children }) {
         } catch (e) { console.warn("Failed to clear synced cart", e); }
       }
       
-      // Update local state in case Firestore sync takes a second or is offline
-      setOrders(prev => [{ id: orderId, ...newOrder }, ...prev]);
+      // Update local state avoiding duplicates (checks if listener already added it)
+      setOrders(prev => prev.some(o => o.id === orderId) ? prev : [{ id: orderId, ...newOrder }, ...prev]);
       return { success: true, orderId };
     } catch (e) {
       console.warn("Firestore order write failed, saving locally:", e);
       // Local fallback
       const orderId = "local_order_" + Math.random().toString(36).substr(2, 9);
       setCart([]);
-      setOrders(prev => [{ id: orderId, ...newOrder }, ...prev]);
+      setOrders(prev => prev.some(o => o.id === orderId) ? prev : [{ id: orderId, ...newOrder }, ...prev]);
       return { success: true, orderId, isLocal: true };
     }
   };
@@ -748,6 +775,119 @@ export function AppProvider({ children }) {
     }
   };
 
+  // User: Confirm Order Delivery
+  const confirmOrderDelivery = async (orderId) => {
+    try {
+      await updateDoc(doc(db, "orders", orderId), { status: "DELIVERED" });
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: "DELIVERED" } : o));
+    } catch (e) {
+      console.warn("Failed to update status to DELIVERED:", e);
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: "DELIVERED" } : o));
+    }
+  };
+
+  // Nutriologist: Create Nutritional Plan
+  const createNutritionalPlan = async (patientEmail, kcalLimit, proteinLimit, carbLimit, fatLimit, startDate, endDate, periodType = "day") => {
+    if (!currentUser) return { success: false };
+
+    const newPlan = {
+      patientEmail: patientEmail.toLowerCase().trim(),
+      nutriologistId: currentUser.uid,
+      nutriologistName: userProfile?.name || "Nutriólogo Clínico",
+      kcalLimit: parseFloat(kcalLimit) || 2000,
+      proteinLimit: parseFloat(proteinLimit) || 130,
+      carbLimit: parseFloat(carbLimit) || 220,
+      fatLimit: parseFloat(fatLimit) || 65,
+      startDate,
+      endDate,
+      periodType,
+      createdBy: "nutriologist",
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      await addDoc(collection(db, "nutritional_plans"), newPlan);
+      return { success: true };
+    } catch (e) {
+      console.error("Error creating plan:", e);
+      return { success: false, error: e.message };
+    }
+  };
+
+  // Patient: Auto-generate Nutritional Plan
+  const autoGeneratePlan = async (goals = "maintenance") => {
+    if (!currentUser || !userProfile) return { success: false };
+
+    let limitKcal = 2000;
+    let protein = 130;
+    let carbs = 220;
+    let fats = 65;
+
+    if (goals === "weight_loss") {
+      limitKcal = 1600;
+      protein = 120;
+      carbs = 160;
+      fats = 50;
+    } else if (goals === "gain_muscle") {
+      limitKcal = 2600;
+      protein = 165;
+      carbs = 300;
+      fats = 80;
+    }
+
+    const newPlan = {
+      patientEmail: userProfile.email.toLowerCase().trim(),
+      kcalLimit: limitKcal,
+      proteinLimit: protein,
+      carbLimit: carbs,
+      fatLimit: fats,
+      startDate: new Date().toISOString().split('T')[0],
+      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      periodType: "day",
+      createdBy: "system",
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      const docRef = await addDoc(collection(db, "nutritional_plans"), newPlan);
+      setNutritionalPlan({ id: docRef.id, ...newPlan });
+      return { success: true };
+    } catch (e) {
+      console.warn("Failed to save auto-generated plan:", e);
+      setNutritionalPlan({ id: "local_plan_" + Math.random().toString(36).substring(2), ...newPlan });
+      return { success: true, isLocal: true };
+    }
+  };
+
+  // Admin: Register New Restaurant
+  const registerRestaurant = async (name, address, lat, lng, imageUrl, rating = 4.5, deliveryTime = "25-35 min") => {
+    if (!currentUser) return { success: false };
+
+    const newRest = {
+      name,
+      address,
+      lat: parseFloat(lat) || 19.414,
+      lng: parseFloat(lng) || -99.171,
+      imageUrl: imageUrl || "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&q=80",
+      rating: parseFloat(rating) || 4.5,
+      deliveryTime,
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      const docRef = await addDoc(collection(db, "restaurants"), newRest);
+      setRestaurants(prev => [{ id: docRef.id, ...newRest }, ...prev]);
+      return { success: true };
+    } catch (e) {
+      console.warn("Failed to write restaurant to Firestore, adding locally:", e);
+      const localId = "local_rest_" + Math.random().toString(36).substr(2, 9);
+      setRestaurants(prev => [{ id: localId, ...newRest }, ...prev]);
+      return { success: true, isLocal: true };
+    }
+  };
+
+
+
   return (
     <AppContext.Provider
       value={{
@@ -770,7 +910,6 @@ export function AppProvider({ children }) {
         logout,
         registerClient,
         registerNutriologist,
-        verifyLicenseDemo,
         addToCart,
         removeFromCart,
         clearCart,
@@ -780,7 +919,12 @@ export function AppProvider({ children }) {
         redeemPrescription,
         changeRoleDualMode,
         addAddress,
-        selectAddress
+        selectAddress,
+        nutritionalPlan,
+        confirmOrderDelivery,
+        createNutritionalPlan,
+        autoGeneratePlan,
+        registerRestaurant
       }}
     >
       {children}

@@ -1,7 +1,7 @@
 // src/pages/CustomDishScreen.jsx
 
 import React, { useState, useCallback, useEffect } from "react";
-import { useParams, useHistory } from "react-router-dom";
+import { useParams, useHistory, useLocation } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useRecipeLoader } from "../hooks/useRecipeLoader";
 import { usePricingCalculator } from "../hooks/usePricingCalculator";
@@ -156,7 +156,7 @@ function OrderSuccessModal({ isPrescription, patientName, orderId, onGoBack, onG
 export default function CustomDishScreen() {
   const { recipeId } = useParams();
   const history = useHistory();
-  const { activeRole, patientSelector, addToCart, sendPrescription, setPatientSelector, restaurants } = useApp();
+  const { activeRole, patientSelector, addToCart, sendPrescription, setPatientSelector, restaurants, nutritionalPlan, redeemPrescription } = useApp();
 
   const activeRecipeId = recipeId || "recipe_tazon_teriyaki";
   const { recipe, ingredients, loading, error } = useRecipeLoader(activeRecipeId);
@@ -168,31 +168,141 @@ export default function CustomDishScreen() {
   const [submitError, setSubmitError] = useState(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
-  // Inicializar gramsMap con defaultGrams cuando los ingredientes cargan
+  // Macro adjustments states
+  const [showMacroPanel, setShowMacroPanel] = useState(false);
+  const [targetProtein, setTargetProtein] = useState("30");
+  const [targetCarbs, setTargetCarbs] = useState("50");
+  const [targetFat, setTargetFat] = useState("12");
+
+  // Portions equivalents states
+  const [portProtein, setPortProtein] = useState(0);
+  const [portCarb, setPortCarb] = useState(0);
+  const [portVeg, setPortVeg] = useState(0);
+  const [portFat, setPortFat] = useState(0);
+
+  const updateMacrosFromPortions = (p, c, v, f) => {
+    // Portions factors:
+    // P (protein): 7g P, 3g F
+    // C (carbs): 2g P, 15g C
+    // V (veg): 1g P, 4g C
+    // F (fat): 5g F
+    const proteinGrams = p * 7 + c * 2 + v * 1;
+    const carbGrams = c * 15 + v * 4;
+    const fatGrams = p * 3 + f * 5;
+    
+    setTargetProtein(proteinGrams.toString());
+    setTargetCarbs(carbGrams.toString());
+    setTargetFat(fatGrams.toString());
+  };
+
+  const location = useLocation();
+  const initialGramsFromState = location.state?.initialGrams;
+  const prescriptionIdFromState = location.state?.prescriptionId;
+
+  // Initialize gramsMap with state if provided, or default recipe-specific limits
   useEffect(() => {
-    if (ingredients.length > 0 && !isInitialized) {
-      const defaults = {};
-      ingredients.forEach((ing) => {
-        defaults[ing.id] = ing.defaultGrams;
-      });
-      setGramsMap(defaults);
+    if (ingredients.length > 0 && !isInitialized && recipe) {
+      if (initialGramsFromState) {
+        setGramsMap(initialGramsFromState);
+      } else {
+        const defaults = {};
+        ingredients.forEach((ing) => {
+          const limits = recipe.ingredientLimits?.[ing.id] || {};
+          defaults[ing.id] = limits.default !== undefined ? limits.default : ing.defaultGrams;
+        });
+        setGramsMap(defaults);
+      }
       setIsInitialized(true);
     }
-  }, [ingredients, isInitialized]);
+  }, [ingredients, isInitialized, recipe, initialGramsFromState]);
 
-  // Armar el array que consume usePricingCalculator
-  const selectedIngredients = ingredients.map((ing) => ({
-    ...ing,
-    grams: gramsMap[ing.id] ?? ing.defaultGrams,
-  }));
+  // Apply recipe-specific limits if defined
+  const selectedIngredients = ingredients.map((ing) => {
+    const limits = recipe?.ingredientLimits?.[ing.id] || {};
+    const effectiveIng = {
+      ...ing,
+      minGrams: limits.min !== undefined ? limits.min : ing.minGrams,
+      maxGrams: limits.max !== undefined ? limits.max : ing.maxGrams,
+      defaultGrams: limits.default !== undefined ? limits.default : ing.defaultGrams
+    };
+    return {
+      ...effectiveIng,
+      grams: gramsMap[ing.id] ?? effectiveIng.defaultGrams,
+    };
+  });
 
-  // Motor de precios en tiempo real
+  // Real-time pricing engine
   const { finalPrice, macros, breakdown, ingredientCost, productionCost } =
     usePricingCalculator(selectedIngredients, recipe?.fixedCost ?? 0);
 
   const handleSliderChange = useCallback((ingredientId, newGrams) => {
     setGramsMap((prev) => ({ ...prev, [ingredientId]: newGrams }));
   }, []);
+
+  // Autofill macros from the active nutritional plan
+  const handleLoadPlanMacros = () => {
+    if (!nutritionalPlan) return;
+    const divisor = nutritionalPlan.periodType === "day" ? 3 : 1;
+    setTargetProtein(Math.round(nutritionalPlan.proteinLimit / divisor).toString());
+    setTargetCarbs(Math.round(nutritionalPlan.carbLimit / divisor).toString());
+    setTargetFat(Math.round(nutritionalPlan.fatLimit / divisor).toString());
+  };
+
+  // Solve portion weights mathematically to match target macros
+  const handleCalculatePortions = () => {
+    if (ingredients.length === 0) return;
+
+    const pTarget = parseFloat(targetProtein) || 0;
+    const cTarget = parseFloat(targetCarbs) || 0;
+    const fTarget = parseFloat(targetFat) || 0;
+
+    // Identify primary source of protein, carbs, fat
+    let bestProteinSource = null;
+    let bestCarbSource = null;
+    let bestFatSource = null;
+
+    let maxP = -1, maxC = -1, maxF = -1;
+
+    ingredients.forEach(ing => {
+      if (ing.proteinPerGram > maxP) {
+        maxP = ing.proteinPerGram;
+        bestProteinSource = ing;
+      }
+      if (ing.carbPerGram > maxC) {
+        maxC = ing.carbPerGram;
+        bestCarbSource = ing;
+      }
+      if (ing.fatPerGram > maxF) {
+        maxF = ing.fatPerGram;
+        bestFatSource = ing;
+      }
+    });
+
+    const nextGramsMap = { ...gramsMap };
+
+    ingredients.forEach(ing => {
+      const limits = recipe.ingredientLimits?.[ing.id] || {};
+      const minG = limits.min !== undefined ? limits.min : ing.minGrams;
+      const maxG = limits.max !== undefined ? limits.max : ing.maxGrams;
+      const defG = limits.default !== undefined ? limits.default : ing.defaultGrams;
+
+      let calculatedGrams = defG;
+
+      if (bestProteinSource && ing.id === bestProteinSource.id && bestProteinSource.proteinPerGram > 0) {
+        calculatedGrams = Math.round(pTarget / bestProteinSource.proteinPerGram);
+      } else if (bestCarbSource && ing.id === bestCarbSource.id && bestCarbSource.carbPerGram > 0) {
+        calculatedGrams = Math.round(cTarget / bestCarbSource.carbPerGram);
+      } else if (bestFatSource && ing.id === bestFatSource.id && bestFatSource.fatPerGram > 0) {
+        calculatedGrams = Math.round(fTarget / bestFatSource.fatPerGram);
+      }
+
+      // Clamp portion weight between recipe-specific limits
+      nextGramsMap[ing.id] = Math.max(minG, Math.min(maxG, calculatedGrams));
+    });
+
+    setGramsMap(nextGramsMap);
+    alert("¡Gramaje recalculado con éxito para acoplarse a tus macros objetivo!");
+  };
 
   const handleAction = async () => {
     if (!recipe || ingredients.length === 0) return;
@@ -232,6 +342,9 @@ export default function CustomDishScreen() {
         }
       } else {
         // Mode: Add to Cart
+        if (prescriptionIdFromState) {
+          await redeemPrescription(prescriptionIdFromState);
+        }
         addToCart(customizedItem);
         setShowSuccessModal(true);
       }
@@ -351,6 +464,150 @@ export default function CustomDishScreen() {
             />
           </div>
 
+          {/* ── ADJUST PORTIONS BY TARGET MACROS (NUTRITIONAL PLAN ALIGNED) ── */}
+          <div style={styles.adjustSection}>
+            <button 
+              onClick={() => setShowMacroPanel(!showMacroPanel)} 
+              style={styles.adjustHeaderBtn}
+            >
+              ⚙️ {showMacroPanel ? "Ocultar Calculadora de Macros" : "Ajustar por Macros Objetivo (Plan)"}
+            </button>
+
+            {showMacroPanel && (
+              <div style={styles.adjustPanelCard}>
+                <h3 style={styles.adjustPanelTitle}>🎯 Configura tus macros objetivo</h3>
+                <p style={styles.adjustPanelDesc}>
+                  Calcula de forma automática los gramos de ingredientes necesarios para alcanzar los macros que tú o tu nutriólogo decidan.
+                </p>
+
+                {nutritionalPlan && (
+                  <button 
+                    type="button" 
+                    onClick={handleLoadPlanMacros}
+                    style={styles.loadPlanBtn}
+                  >
+                    🩺 Cargar del Plan ({Math.round(nutritionalPlan.proteinLimit / (nutritionalPlan.periodType === 'day' ? 3 : 1))}g P, {Math.round(nutritionalPlan.carbLimit / (nutritionalPlan.periodType === 'day' ? 3 : 1))}g C)
+                  </button>
+                )}
+
+                {/* Portions equivalents selector */}
+                <div style={styles.portionsCard}>
+                  <p style={styles.portionsTitle}>📈 Prescribir por Porciones (Equivalentes)</p>
+                  <p style={styles.portionsSubtitle}>
+                    Selecciona equivalentes para estimar macros automáticamente.
+                  </p>
+                  <div style={styles.portionsGrid}>
+                    <div style={styles.portionCol}>
+                      <label style={styles.portionLabel}>🥩 Proteínas</label>
+                      <div style={styles.portionCounter}>
+                        <button type="button" style={styles.counterBtn} onClick={() => {
+                          const val = Math.max(0, portProtein - 1);
+                          setPortProtein(val);
+                          updateMacrosFromPortions(val, portCarb, portVeg, portFat);
+                        }}>-</button>
+                        <span style={styles.counterVal}>{portProtein}</span>
+                        <button type="button" style={styles.counterBtn} onClick={() => {
+                          const val = portProtein + 1;
+                          setPortProtein(val);
+                          updateMacrosFromPortions(val, portCarb, portVeg, portFat);
+                        }}>+</button>
+                      </div>
+                    </div>
+
+                    <div style={styles.portionCol}>
+                      <label style={styles.portionLabel}>🍞 Carbohidratos</label>
+                      <div style={styles.portionCounter}>
+                        <button type="button" style={styles.counterBtn} onClick={() => {
+                          const val = Math.max(0, portCarb - 1);
+                          setPortCarb(val);
+                          updateMacrosFromPortions(portProtein, val, portVeg, portFat);
+                        }}>-</button>
+                        <span style={styles.counterVal}>{portCarb}</span>
+                        <button type="button" style={styles.counterBtn} onClick={() => {
+                          const val = portCarb + 1;
+                          setPortCarb(val);
+                          updateMacrosFromPortions(portProtein, val, portVeg, portFat);
+                        }}>+</button>
+                      </div>
+                    </div>
+
+                    <div style={styles.portionCol}>
+                      <label style={styles.portionLabel}>🥦 Verduras</label>
+                      <div style={styles.portionCounter}>
+                        <button type="button" style={styles.counterBtn} onClick={() => {
+                          const val = Math.max(0, portVeg - 1);
+                          setPortVeg(val);
+                          updateMacrosFromPortions(portProtein, portCarb, val, portFat);
+                        }}>-</button>
+                        <span style={styles.counterVal}>{portVeg}</span>
+                        <button type="button" style={styles.counterBtn} onClick={() => {
+                          const val = portVeg + 1;
+                          setPortVeg(val);
+                          updateMacrosFromPortions(portProtein, portCarb, val, portFat);
+                        }}>+</button>
+                      </div>
+                    </div>
+
+                    <div style={styles.portionCol}>
+                      <label style={styles.portionLabel}>🥑 Grasas</label>
+                      <div style={styles.portionCounter}>
+                        <button type="button" style={styles.counterBtn} onClick={() => {
+                          const val = Math.max(0, portFat - 1);
+                          setPortFat(val);
+                          updateMacrosFromPortions(portProtein, portCarb, portVeg, val);
+                        }}>-</button>
+                        <span style={styles.counterVal}>{portFat}</span>
+                        <button type="button" style={styles.counterBtn} onClick={() => {
+                          const val = portFat + 1;
+                          setPortFat(val);
+                          updateMacrosFromPortions(portProtein, portCarb, portVeg, val);
+                        }}>+</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={styles.macroFormRow}>
+                  <div style={styles.macroFormGroup}>
+                    <label style={styles.macroFormLabel}>Prot (g)</label>
+                    <input 
+                      type="number" 
+                      value={targetProtein} 
+                      onChange={(e) => setTargetProtein(e.target.value)} 
+                      style={styles.macroFormInput} 
+                    />
+                  </div>
+                  <div style={styles.macroFormGroup}>
+                    <label style={styles.macroFormLabel}>Carb (g)</label>
+                    <input 
+                      type="number" 
+                      value={targetCarbs} 
+                      onChange={(e) => setTargetCarbs(e.target.value)} 
+                      style={styles.macroFormInput} 
+                    />
+                  </div>
+                  <div style={styles.macroFormGroup}>
+                    <label style={styles.macroFormLabel}>Grasa (g)</label>
+                    <input 
+                      type="number" 
+                      value={targetFat} 
+                      onChange={(e) => setTargetFat(e.target.value)} 
+                      style={styles.macroFormInput} 
+                    />
+                  </div>
+                </div>
+
+                <button 
+                  type="button" 
+                  onClick={handleCalculatePortions} 
+                  style={styles.calculateBtn}
+                >
+                  Calcular Porciones
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* ── SLIDERS DE INGREDIENTES ── */}
           <div style={styles.slidersSection}>
             <h2 style={styles.sectionTitle}>Macros de precisión</h2>
@@ -358,11 +615,11 @@ export default function CustomDishScreen() {
               Mueve los deslizadores para ajustar los gramos exactos de la receta.
             </p>
 
-            {ingredients.map((ingredient) => (
+            {selectedIngredients.map((effectiveIngredient) => (
               <IngredientSlider
-                key={ingredient.id}
-                ingredient={ingredient}
-                grams={gramsMap[ingredient.id] ?? ingredient.defaultGrams}
+                key={effectiveIngredient.id}
+                ingredient={effectiveIngredient}
+                grams={effectiveIngredient.grams}
                 onChange={handleSliderChange}
               />
             ))}
@@ -921,5 +1178,152 @@ const styles = {
     fontSize: 14,
     fontWeight: 600,
     cursor: "pointer",
+  },
+  adjustSection: {
+    padding: "0 20px",
+    marginBottom: 20,
+  },
+  adjustHeaderBtn: {
+    width: "100%",
+    backgroundColor: "rgba(249,115,22,0.1)",
+    border: "1px solid rgba(249,115,22,0.25)",
+    color: "#F97316",
+    borderRadius: 14,
+    padding: "14px",
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  adjustPanelCard: {
+    backgroundColor: "#131316",
+    border: "1px solid #222227",
+    borderRadius: 18,
+    padding: "16px",
+    marginTop: 10,
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    textAlign: "left",
+  },
+  adjustPanelTitle: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: "#F8FAFC",
+    margin: 0,
+  },
+  adjustPanelDesc: {
+    fontSize: 11,
+    color: "#64748B",
+    margin: 0,
+    lineHeight: 1.4,
+  },
+  loadPlanBtn: {
+    backgroundColor: "rgba(167, 139, 250, 0.15)",
+    border: "1px solid rgba(167, 139, 250, 0.25)",
+    color: "#A78BFA",
+    borderRadius: 10,
+    padding: "10px",
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  macroFormRow: {
+    display: "flex",
+    gap: 10,
+  },
+  macroFormGroup: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  macroFormLabel: {
+    fontSize: 11,
+    color: "#64748B",
+    fontWeight: 500,
+  },
+  macroFormInput: {
+    backgroundColor: "#0B0B0C",
+    border: "1px solid #222227",
+    borderRadius: 8,
+    color: "#FFF",
+    padding: "10px",
+    fontSize: 13,
+    outline: "none",
+  },
+  calculateBtn: {
+    backgroundColor: "#F97316",
+    color: "#000",
+    border: "none",
+    borderRadius: 10,
+    padding: "12px",
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+    marginTop: 4,
+  },
+  portionsCard: {
+    backgroundColor: "rgba(167, 139, 250, 0.04)",
+    border: "1px solid rgba(167, 139, 250, 0.15)",
+    borderRadius: 14,
+    padding: "12px",
+    marginBottom: "10px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  portionsTitle: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#C084FC",
+    margin: 0,
+  },
+  portionsSubtitle: {
+    fontSize: 10,
+    color: "#94A3B8",
+    margin: 0,
+    lineHeight: 1.3,
+  },
+  portionsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, 1fr)",
+    gap: "10px",
+    marginTop: "4px",
+  },
+  portionCol: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+  portionLabel: {
+    fontSize: 10,
+    color: "#E2E8F0",
+    fontWeight: 600,
+  },
+  portionCounter: {
+    display: "flex",
+    alignItems: "center",
+    backgroundColor: "#0B0B0C",
+    border: "1px solid rgba(167, 139, 250, 0.12)",
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  counterBtn: {
+    flex: 1,
+    backgroundColor: "transparent",
+    border: "none",
+    color: "#A78BFA",
+    fontSize: 14,
+    fontWeight: 700,
+    padding: "6px 0",
+    cursor: "pointer",
+    textAlign: "center",
+  },
+  counterVal: {
+    flex: 1.2,
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#FFF",
+    textAlign: "center",
   }
 };

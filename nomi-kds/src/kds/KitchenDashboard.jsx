@@ -37,7 +37,7 @@ function formatTime(date) {
 
 // ─── SUBCOMPONENTES ───────────────────────────────────────────────────────────
 
-function KDSHeader({ pendingCount, readyCount, currentTime, selectedRestaurant, onSelectRestaurant }) {
+function KDSHeader({ pendingCount, readyCount, currentTime, selectedRestaurant, onSelectRestaurant, allowSwitch = true }) {
   const MOCK_RESTAURANTS = [
     { id: "all", name: "Todas las cocinas" },
     { id: "rest_nativa", name: "Nativa Dark Kitchen" },
@@ -51,15 +51,21 @@ function KDSHeader({ pendingCount, readyCount, currentTime, selectedRestaurant, 
         <span style={styles.headerSubtitle}>Kitchen Display System</span>
       </div>
       <div style={styles.headerCenter}>
-        <select 
-          style={styles.restaurantSelect}
-          value={selectedRestaurant}
-          onChange={(e) => onSelectRestaurant(e.target.value)}
-        >
-          {MOCK_RESTAURANTS.map(r => (
-            <option key={r.id} value={r.id}>{r.name}</option>
-          ))}
-        </select>
+        {allowSwitch ? (
+          <select 
+            style={styles.restaurantSelect}
+            value={selectedRestaurant}
+            onChange={(e) => onSelectRestaurant(e.target.value)}
+          >
+            {MOCK_RESTAURANTS.map(r => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+        ) : (
+          <span style={styles.restaurantTextLabel}>
+            📍 {MOCK_RESTAURANTS.find(r => r.id === selectedRestaurant)?.name || selectedRestaurant}
+          </span>
+        )}
         <span style={{...styles.headerTime, marginLeft: 20}}>{currentTime}</span>
       </div>
       <div style={styles.headerRight}>
@@ -267,8 +273,7 @@ function ErrorScreen({ message }) {
 
 // ─── PANTALLA PRINCIPAL KDS ───────────────────────────────────────────────────
 
-export default function KitchenDashboard() {
-  const [selectedRestaurant, setSelectedRestaurant] = useState("all");
+export default function KitchenDashboard({ selectedRestaurant = "all", onSelectRestaurant, allowSwitch = true }) {
   const { pendingOrders, readyOrders, loading, error, markAsReady } =
     useKitchenOrders(selectedRestaurant);
 
@@ -307,7 +312,8 @@ export default function KitchenDashboard() {
         readyCount={readyOrders.length}
         currentTime={currentTime}
         selectedRestaurant={selectedRestaurant}
-        onSelectRestaurant={setSelectedRestaurant}
+        onSelectRestaurant={onSelectRestaurant || (() => {})}
+        allowSwitch={allowSwitch}
       />
 
       {/* ── Layout de dos columnas ── */}
@@ -448,6 +454,12 @@ const styles = {
     fontWeight: "600",
     outline: "none",
     cursor: "pointer"
+  },
+  restaurantTextLabel: {
+    color: "#F97316",
+    fontSize: "16px",
+    fontWeight: "700",
+    letterSpacing: "0.02em",
   },
   headerTime: {
     fontSize: 28,

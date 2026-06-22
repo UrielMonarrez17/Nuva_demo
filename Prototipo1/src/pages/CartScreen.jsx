@@ -16,12 +16,15 @@ import {
 import MapPicker from "../components/MapPicker";
 
 export default function CartScreen() {
-  const { cart, removeFromCart, placeOrder, addresses, selectAddress, addAddress } = useApp();
+  const { cart, removeFromCart, placeOrder, addresses, selectAddress, addAddress, recipes, restaurants } = useApp();
   const history = useHistory();
 
   const [loadingCheckout, setLoadingCheckout] = useState(false);
   const [successOrderInfo, setSuccessOrderInfo] = useState(null);
   
+  // Payment Method Selection
+  const [paymentMethod, setPaymentMethod] = useState("card"); // "card" | "cash" | "applepay"
+
   // Address drawer/modal state
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [newStreet, setNewStreet] = useState("");
@@ -44,6 +47,40 @@ export default function CartScreen() {
   const totalFats = cart.reduce((acc, item) => acc + item.macros.fats, 0);
   const totalKcal = cart.reduce((acc, item) => acc + item.macros.kcal, 0);
 
+  // Extract coordinates from street string (format: Lat: X.XXX, Lng: Y.YYY · Details)
+  const getCoordinates = (street) => {
+    if (!street) return null;
+    const match = street.match(/Lat:\s*([-\d.]+),\s*Lng:\s*([-\d.]+)/);
+    if (match) {
+      return { lat: parseFloat(match[1]), lng: parseFloat(match[2]) };
+    }
+    return null;
+  };
+
+  // Math distance calculation using Haversine formula
+  const calculateDistance = (userCoords, restCoords) => {
+    if (!userCoords || !restCoords) return 3.2; // default mock distance in km if no map location
+    const R = 6371; // Earth radius in km
+    const dLat = (restCoords.lat - userCoords.lat) * Math.PI / 180;
+    const dLng = (restCoords.lng - userCoords.lng) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(userCoords.lat * Math.PI / 180) * Math.cos(restCoords.lat * Math.PI / 180) * 
+      Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return parseFloat((R * c).toFixed(1));
+  };
+
+  // Find coordinates of restaurant for items in the cart
+  const firstCartItem = cart[0];
+  const cartRecipe = firstCartItem ? recipes.find(r => r.id === firstCartItem.recipeId) : null;
+  const cartRestaurant = cartRecipe ? restaurants.find(r => r.id === cartRecipe.restaurantId) : null;
+  const restCoords = cartRestaurant ? { lat: cartRestaurant.lat, lng: cartRestaurant.lng } : { lat: 19.414, lng: -99.171 };
+
+  const userCoords = activeAddress ? getCoordinates(activeAddress.street) : null;
+  const distance = activeAddress ? calculateDistance(userCoords, restCoords) : 3.2;
+  const estTime = Math.max(15, Math.round(15 + distance * 3.5)); // 15 mins base + 3.5 mins per km
+
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     setLoadingCheckout(true);
@@ -54,7 +91,10 @@ export default function CartScreen() {
 
     // Simulate cooking/sending delays
     setTimeout(async () => {
-      const res = await placeOrder(addressStr);
+      const methodLabel = 
+        paymentMethod === "card" ? "Tarjeta de Crédito (Simulado)" :
+        paymentMethod === "cash" ? "Efectivo al recibir" : "Apple Pay (Simulado)";
+      const res = await placeOrder(addressStr, methodLabel, distance, estTime);
       setLoadingCheckout(false);
       if (res.success) {
         setSuccessOrderInfo(res.orderId);
@@ -206,6 +246,61 @@ export default function CartScreen() {
                   </div>
                 </div>
                 <IonIcon icon={chevronForwardOutline} style={styles.arrowIcon} />
+              </div>
+
+              {/* Distance and Time calculation section */}
+              {activeAddress && (
+                <div style={styles.deliveryDetailCard}>
+                  <IonIcon icon={timeOutline} style={styles.deliveryDetailIcon} />
+                  <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
+                    <span style={styles.deliveryDetailTitle}>Envío Inteligente Nomi</span>
+                    <span style={styles.deliveryDetailText}>
+                      Distancia: <strong>{distance} km</strong> · Llegada estimada: <strong>{estTime} min</strong>
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Payment Method section */}
+              <div style={styles.paymentCard}>
+                <h3 style={styles.paymentTitle}>Método de Pago</h3>
+                <div style={styles.paymentOptions}>
+                  <button 
+                    type="button"
+                    onClick={() => setPaymentMethod("card")}
+                    style={{
+                      ...styles.paymentOptBtn,
+                      ...(paymentMethod === "card" ? styles.paymentOptActive : {})
+                    }}
+                  >
+                    💳 Tarjeta
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setPaymentMethod("cash")}
+                    style={{
+                      ...styles.paymentOptBtn,
+                      ...(paymentMethod === "cash" ? styles.paymentOptActive : {})
+                    }}
+                  >
+                    💵 Efectivo
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setPaymentMethod("applepay")}
+                    style={{
+                      ...styles.paymentOptBtn,
+                      ...(paymentMethod === "applepay" ? styles.paymentOptActive : {})
+                    }}
+                  >
+                    📱 Express Pay
+                  </button>
+                </div>
+                <div style={styles.paymentInfoText}>
+                  {paymentMethod === "card" && "Se simulará un cobro seguro cifrado por Stripe."}
+                  {paymentMethod === "cash" && "Paga en efectivo al repartidor al recibir tu pedido."}
+                  {paymentMethod === "applepay" && "Se simulará un pago express con tu billetera digital."}
+                </div>
               </div>
 
               {/* Cost breakdown */}
@@ -529,6 +624,76 @@ const styles = {
     padding: "16px",
     marginBottom: 20,
     cursor: "pointer",
+  },
+  deliveryDetailCard: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "rgba(52, 211, 153, 0.05)",
+    border: "1px solid rgba(52, 211, 153, 0.2)",
+    borderRadius: 16,
+    padding: "16px",
+    marginBottom: 20,
+  },
+  deliveryDetailIcon: {
+    color: "#34D399",
+    fontSize: 22,
+  },
+  deliveryDetailTitle: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#34D399",
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+  },
+  deliveryDetailText: {
+    fontSize: 12,
+    color: "#CBD5E1",
+    marginTop: 4,
+  },
+  paymentCard: {
+    backgroundColor: "#131316",
+    border: "1px solid #222227",
+    borderRadius: 20,
+    padding: "20px",
+    marginBottom: 24,
+  },
+  paymentTitle: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#64748B",
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+    margin: "0 0 14px 0",
+    textAlign: "left",
+  },
+  paymentOptions: {
+    display: "flex",
+    gap: 8,
+    marginBottom: 12,
+  },
+  paymentOptBtn: {
+    flex: 1,
+    backgroundColor: "#0B0B0C",
+    border: "1px solid #222227",
+    borderRadius: 12,
+    padding: "12px 6px",
+    fontSize: 11,
+    fontWeight: 600,
+    color: "#94A3B8",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+  },
+  paymentOptActive: {
+    backgroundColor: "rgba(249, 115, 22, 0.15)",
+    borderColor: "#F97316",
+    color: "#F97316",
+  },
+  paymentInfoText: {
+    fontSize: 11,
+    color: "#64748B",
+    textAlign: "left",
+    paddingLeft: 4,
   },
   addressLeft: {
     display: "flex",

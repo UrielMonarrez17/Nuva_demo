@@ -1,41 +1,115 @@
 // src/pages/NutriDashboard.jsx
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useApp } from "../context/AppContext";
 import { useHistory } from "react-router-dom";
 import { IonPage, IonContent, IonIcon } from "@ionic/react";
+import { db } from "../firebase/firebaseconfig";
+import { collection, query, where, onSnapshot, addDoc } from "firebase/firestore";
 import { 
   addOutline, 
   peopleOutline, 
   documentTextOutline, 
-  shieldCheckmarkOutline, 
   mailOutline, 
   phonePortraitOutline,
   personOutline,
-  closeOutline
+  closeOutline,
+  calendarOutline,
+  timeOutline,
+  notificationsOutline
 } from "ionicons/icons";
 
 export default function NutriDashboard() {
   const { 
+    currentUser,
     userProfile, 
     patients, 
     prescriptions, 
     addPatient, 
-    setPatientSelector, 
-    verifyLicenseDemo 
+    setPatientSelector,
+    createNutritionalPlan
   } = useApp();
   const history = useHistory();
 
   const [showAddModal, setShowAddModal] = useState(false);
-  
-  // Form states
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [showSlotModal, setShowSlotModal] = useState(false);
+  const [selectedPatient, setSelectedPatient] = useState(null);
+
+  // Form states - Patient registration
   const [patientName, setPatientName] = useState("");
   const [patientEmail, setPatientEmail] = useState("");
   const [patientPhone, setPatientPhone] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
+  // Form states - Plan assignment
+  const [planStart, setPlanStart] = useState(new Date().toISOString().split('T')[0]);
+  const [planEnd, setPlanEnd] = useState(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+  const [planKcal, setPlanKcal] = useState("2000");
+  const [planProtein, setPlanProtein] = useState("130");
+  const [planCarb, setPlanCarb] = useState("220");
+  const [planFat, setPlanFat] = useState("65");
+
+  // Portion/equivalents states
+  const [portProtein, setPortProtein] = useState(0);
+  const [portCarb, setPortCarb] = useState(0);
+  const [portVeg, setPortVeg] = useState(0);
+  const [portFat, setPortFat] = useState(0);
+
+  const updateMacrosFromPortions = (p, c, v, f) => {
+    // 1 Port Protein: 7 P, 3 F, 55 Kcal
+    // 1 Port Carb: 2 P, 15 C, 70 Kcal
+    // 1 Port Veg: 1 P, 4 C, 25 Kcal
+    // 1 Port Fat: 5 F, 45 Kcal
+    const proteinGrams = p * 7 + c * 2 + v * 1;
+    const carbGrams = c * 15 + v * 4;
+    const fatGrams = p * 3 + f * 5;
+    const kcalVal = p * 55 + c * 70 + v * 25 + f * 45;
+
+    setPlanProtein(proteinGrams.toString());
+    setPlanCarb(carbGrams.toString());
+    setPlanFat(fatGrams.toString());
+    setPlanKcal(kcalVal.toString());
+  };
+
+  // Form states - Slot creation
+  const [slotDate, setSlotDate] = useState(new Date().toISOString().split('T')[0]);
+  const [slotTime, setSlotTime] = useState("10:00 AM");
+
+  // Slots state
+  const [slots, setSlots] = useState([]);
+  
+  // Real-time notifications of new booked appointments
+  const [recentBooking, setRecentBooking] = useState(null);
+
   const activePatients = patients.length;
   const sentRecipesCount = prescriptions.length;
+  const isPending = userProfile?.status === "pending";
+
+  // Listen to scheduled slots
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    const q = query(
+      collection(db, "appointment_slots"),
+      where("nutriologistId", "==", currentUser.uid)
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      list.sort((a, b) => new Date(`${a.date} ${a.time}`) - new Date(`${b.date} ${b.time}`));
+      
+      // Check if there's any newly booked slot to notify
+      const justBooked = list.find(slot => slot.status === "booked" && !slot.notified);
+      if (justBooked) {
+        setRecentBooking(justBooked);
+      }
+      
+      setSlots(list);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
 
   const handleAddPatientSubmit = async (e) => {
     e.preventDefault();
@@ -52,6 +126,7 @@ export default function NutriDashboard() {
       setPatientEmail("");
       setPatientPhone("");
       setShowAddModal(false);
+      alert("¡Paciente registrado con éxito!");
     } else {
       setErrorMsg("Error al registrar el paciente.");
     }
@@ -59,10 +134,62 @@ export default function NutriDashboard() {
 
   const handlePrescribeToPatient = (patient) => {
     setPatientSelector(patient);
-    history.push("/home"); // Redirect to menu to select a base recipe!
+    history.push("/home"); // Redirect to menu to choose a base recipe
   };
 
-  const isPending = userProfile?.status === "pending";
+  const handleOpenPlanModal = (patient) => {
+    setSelectedPatient(patient);
+    setShowPlanModal(true);
+  };
+
+  const handleAssignPlanSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedPatient) return;
+
+    if (window.confirm("¿Seguro que deseas guardar y asignar este plan?")) {
+      const res = await createNutritionalPlan(
+        selectedPatient.patientEmail,
+        planKcal,
+        planProtein,
+        planCarb,
+        planFat,
+        planStart,
+        planEnd
+      );
+
+      if (res.success) {
+        alert("¡Plan nutricional asignado con éxito!");
+        setShowPlanModal(false);
+        setSelectedPatient(null);
+      } else {
+        alert("Ocurrió un error al guardar el plan.");
+      }
+    }
+  };
+
+  const handleCreateSlotSubmit = async (e) => {
+    e.preventDefault();
+    if (!slotDate || !slotTime) return;
+
+    try {
+      await addDoc(collection(db, "appointment_slots"), {
+        nutriologistId: currentUser.uid,
+        nutriologistName: userProfile?.name || "Nutriólogo Clínico",
+        date: slotDate,
+        time: slotTime,
+        status: "available",
+        createdAt: new Date().toISOString()
+      });
+      alert("¡Horario de cita disponible agregado!");
+      setShowSlotModal(false);
+    } catch (err) {
+      console.error(err);
+      alert("Error al guardar horario.");
+    }
+  };
+
+  const bookedSlots = slots.filter(s => s.status === "booked");
+  const availableSlots = slots.filter(s => s.status === "available");
 
   return (
     <IonPage>
@@ -93,12 +220,27 @@ export default function NutriDashboard() {
               <p style={styles.pendingText}>
                 Tu cédula profesional ({userProfile?.professionalLicense}) está siendo validada por nuestro equipo médico.
               </p>
-              <div style={styles.pendingFooter}>
-                <span style={styles.pendingCaption}>Bypass de verificación para pruebas:</span>
-                <button style={styles.verifyBypassBtn} onClick={verifyLicenseDemo}>
-                  Auto-Verificar Cédula
-                </button>
+            </div>
+          )}
+
+          {/* Real-time booking notification banner */}
+          {recentBooking && (
+            <div style={styles.notificationBanner}>
+              <div style={styles.notificationLeft}>
+                <IonIcon icon={notificationsOutline} style={{ color: "#34D399", fontSize: 20 }} />
+                <div>
+                  <span style={styles.notificationTitle}>Nueva Cita Agendada</span>
+                  <span style={styles.notificationText}>
+                    El paciente <strong>{recentBooking.patientName}</strong> ha reservado cita el {recentBooking.date} a las {recentBooking.time}.
+                  </span>
+                </div>
               </div>
+              <button 
+                onClick={() => setRecentBooking(null)} 
+                style={styles.notificationCloseBtn}
+              >
+                ✕
+              </button>
             </div>
           )}
 
@@ -112,7 +254,7 @@ export default function NutriDashboard() {
             <div style={styles.statCard}>
               <IonIcon icon={documentTextOutline} style={styles.statIcon} />
               <span style={styles.statNumber}>{sentRecipesCount}</span>
-              <span style={styles.statLabel}>Recetas Enviadas</span>
+              <span style={styles.statLabel}>Platillos Recomendados</span>
             </div>
           </div>
 
@@ -161,27 +303,83 @@ export default function NutriDashboard() {
                     </div>
                   </div>
 
-                  <button 
-                    style={styles.prescribeBtn}
-                    onClick={() => handlePrescribeToPatient(pat)}
-                    disabled={isPending}
-                    title={isPending ? "Debes estar verificado para recetar" : "Recetar comida"}
-                  >
-                    Recetar Comida
-                  </button>
+                  <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                    <button 
+                      style={{ ...styles.prescribeBtn, flex: 1 }}
+                      onClick={() => handlePrescribeToPatient(pat)}
+                      disabled={isPending}
+                      title={isPending ? "Debes estar verificado para recetar" : "Recomendar plato"}
+                    >
+                      🍳 Recomendar
+                    </button>
+                    <button 
+                      style={{ ...styles.planBtn, flex: 1 }}
+                      onClick={() => handleOpenPlanModal(pat)}
+                      disabled={isPending}
+                    >
+                      📈 Recetar Macros
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
 
+          {/* Schedule Slots Availability section */}
+          <div style={{ ...styles.sectionHeader, marginTop: 32 }}>
+            <h2 style={styles.sectionTitle}>Agenda de Citas</h2>
+            <button 
+              style={styles.addPatientBtn}
+              onClick={() => setShowSlotModal(true)}
+            >
+              <IonIcon icon={addOutline} style={{ marginRight: 4 }} />
+              Disponibilidad
+            </button>
+          </div>
+
+          {/* Scheduled/Booked slots list */}
+          <div style={styles.scheduleSection}>
+            <h3 style={styles.subSubTitle}>Citas Reservadas</h3>
+            {bookedSlots.length === 0 ? (
+              <p style={styles.emptyText}>No hay citas programadas para esta semana.</p>
+            ) : (
+              <div style={styles.slotsList}>
+                {bookedSlots.map(slot => (
+                  <div key={slot.id} style={styles.slotCardBooked}>
+                    <div style={styles.slotDetails}>
+                      <span style={styles.slotPatientName}>👤 {slot.patientName}</span>
+                      <span style={styles.slotMeta}>📅 {slot.date} a las {slot.time}</span>
+                      <span style={styles.slotEmail}>📧 {slot.patientEmail}</span>
+                    </div>
+                    <span style={styles.bookedBadge}>Reservada</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <h3 style={{ ...styles.subSubTitle, marginTop: 20 }}>Horarios Disponibles</h3>
+            {availableSlots.length === 0 ? (
+              <p style={styles.emptyText}>No tienes horarios libres publicados.</p>
+            ) : (
+              <div style={styles.slotsGrid}>
+                {availableSlots.map(slot => (
+                  <div key={slot.id} style={styles.slotCardAvailable}>
+                    <span>📅 {slot.date}</span>
+                    <strong>⏱️ {slot.time}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Prescriptions Log */}
           <div style={{ ...styles.sectionHeader, marginTop: 32 }}>
-            <h2 style={styles.sectionTitle}>Historial de Recetas</h2>
+            <h2 style={styles.sectionTitle}>Historial de Recomendaciones</h2>
           </div>
 
           {prescriptions.length === 0 ? (
             <div style={styles.emptyHistoryCard}>
-              <p style={styles.emptyHistoryText}>No has enviado recetas aún.</p>
+              <p style={styles.emptyHistoryText}>No has enviado recomendaciones aún.</p>
             </div>
           ) : (
             <div style={styles.historyList}>
@@ -211,7 +409,7 @@ export default function NutriDashboard() {
             </div>
           )}
 
-          {/* Add Patient Modal / Bottom Sheet */}
+          {/* Add Patient Modal */}
           {showAddModal && (
             <div style={styles.modalOverlay}>
               <div style={styles.modalCard}>
@@ -263,6 +461,225 @@ export default function NutriDashboard() {
 
                   <button type="submit" style={styles.modalSubmitBtn}>
                     Guardar y Registrar
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Assign Plan Modal */}
+          {showPlanModal && selectedPatient && (
+            <div style={styles.modalOverlay}>
+              <div style={styles.modalCard}>
+                <div style={styles.modalHeader}>
+                  <h3 style={styles.modalTitle}>Prescribir Plan Nutricional</h3>
+                  <button style={styles.closeBtn} onClick={() => {
+                    if (window.confirm("¿Seguro que deseas salir? Los cambios no se guardarán.")) {
+                      setShowPlanModal(false);
+                    }
+                  }}>
+                    ✕
+                  </button>
+                </div>
+
+                <form onSubmit={handleAssignPlanSubmit} style={styles.modalForm}>
+                  <p style={{ fontSize: 13, color: "#A78BFA", margin: 0 }}>
+                    Asignando macros a: <strong>{selectedPatient.patientName}</strong>
+                  </p>
+
+                  {/* Portions selector */}
+                  <div style={styles.portionsCard}>
+                    <p style={styles.portionsTitle}>📈 Recetar por Porciones (Equivalentes)</p>
+                    <p style={styles.portionsSubtitle}>
+                      Selecciona porciones de alimentos para calcular macros diarios automáticamente.
+                    </p>
+                    <div style={styles.portionsGrid}>
+                      <div style={styles.portionCol}>
+                        <label style={styles.portionLabel}>🥩 Proteínas</label>
+                        <div style={styles.portionCounter}>
+                          <button type="button" style={styles.counterBtn} onClick={() => {
+                            const val = Math.max(0, portProtein - 1);
+                            setPortProtein(val);
+                            updateMacrosFromPortions(val, portCarb, portVeg, portFat);
+                          }}>-</button>
+                          <span style={styles.counterVal}>{portProtein}</span>
+                          <button type="button" style={styles.counterBtn} onClick={() => {
+                            const val = portProtein + 1;
+                            setPortProtein(val);
+                            updateMacrosFromPortions(val, portCarb, portVeg, portFat);
+                          }}>+</button>
+                        </div>
+                      </div>
+
+                      <div style={styles.portionCol}>
+                        <label style={styles.portionLabel}>🍞 Carbohidratos</label>
+                        <div style={styles.portionCounter}>
+                          <button type="button" style={styles.counterBtn} onClick={() => {
+                            const val = Math.max(0, portCarb - 1);
+                            setPortCarb(val);
+                            updateMacrosFromPortions(portProtein, val, portVeg, portFat);
+                          }}>-</button>
+                          <span style={styles.counterVal}>{portCarb}</span>
+                          <button type="button" style={styles.counterBtn} onClick={() => {
+                            const val = portCarb + 1;
+                            setPortCarb(val);
+                            updateMacrosFromPortions(portProtein, val, portVeg, portFat);
+                          }}>+</button>
+                        </div>
+                      </div>
+
+                      <div style={styles.portionCol}>
+                        <label style={styles.portionLabel}>🥦 Verduras</label>
+                        <div style={styles.portionCounter}>
+                          <button type="button" style={styles.counterBtn} onClick={() => {
+                            const val = Math.max(0, portVeg - 1);
+                            setPortVeg(val);
+                            updateMacrosFromPortions(portProtein, portCarb, val, portFat);
+                          }}>-</button>
+                          <span style={styles.counterVal}>{portVeg}</span>
+                          <button type="button" style={styles.counterBtn} onClick={() => {
+                            const val = portVeg + 1;
+                            setPortVeg(val);
+                            updateMacrosFromPortions(portProtein, portCarb, val, portFat);
+                          }}>+</button>
+                        </div>
+                      </div>
+
+                      <div style={styles.portionCol}>
+                        <label style={styles.portionLabel}>🥑 Grasas</label>
+                        <div style={styles.portionCounter}>
+                          <button type="button" style={styles.counterBtn} onClick={() => {
+                            const val = Math.max(0, portFat - 1);
+                            setPortFat(val);
+                            updateMacrosFromPortions(portProtein, portCarb, portVeg, val);
+                          }}>-</button>
+                          <span style={styles.counterVal}>{portFat}</span>
+                          <button type="button" style={styles.counterBtn} onClick={() => {
+                            const val = portFat + 1;
+                            setPortFat(val);
+                            updateMacrosFromPortions(portProtein, portCarb, portVeg, val);
+                          }}>+</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={styles.row}>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.formLabel}>Fecha Inicio</label>
+                      <input 
+                        type="date" 
+                        value={planStart}
+                        onChange={(e) => setPlanStart(e.target.value)}
+                        style={styles.formInput} 
+                        required
+                      />
+                    </div>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.formLabel}>Fecha Fin</label>
+                      <input 
+                        type="date" 
+                        value={planEnd}
+                        onChange={(e) => setPlanEnd(e.target.value)}
+                        style={styles.formInput} 
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.formLabel}>Límite diario de Calorías (kcal)</label>
+                    <input 
+                      type="number" 
+                      value={planKcal}
+                      onChange={(e) => setPlanKcal(e.target.value)}
+                      style={styles.formInput}
+                      required
+                    />
+                  </div>
+
+                  <div style={styles.row}>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.formLabel}>Proteína (g)</label>
+                      <input 
+                        type="number" 
+                        value={planProtein}
+                        onChange={(e) => setPlanProtein(e.target.value)}
+                        style={styles.formInput} 
+                        required
+                      />
+                    </div>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.formLabel}>Carbos (g)</label>
+                      <input 
+                        type="number" 
+                        value={planCarb}
+                        onChange={(e) => setPlanCarb(e.target.value)}
+                        style={styles.formInput} 
+                        required
+                      />
+                    </div>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.formLabel}>Grasas (g)</label>
+                      <input 
+                        type="number" 
+                        value={planFat}
+                        onChange={(e) => setPlanFat(e.target.value)}
+                        style={styles.formInput} 
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <button type="submit" style={styles.modalSubmitBtn}>
+                    Guardar y Asignar Plan
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Add Slot Modal */}
+          {showSlotModal && (
+            <div style={styles.modalOverlay}>
+              <div style={styles.modalCard}>
+                <div style={styles.modalHeader}>
+                  <h3 style={styles.modalTitle}>Agregar Disponibilidad</h3>
+                  <button style={styles.closeBtn} onClick={() => setShowSlotModal(false)}>✕</button>
+                </div>
+
+                <form onSubmit={handleCreateSlotSubmit} style={styles.modalForm}>
+                  <div style={styles.formGroup}>
+                    <label style={styles.formLabel}>Fecha de Cita</label>
+                    <input 
+                      type="date"
+                      value={slotDate}
+                      onChange={(e) => setSlotDate(e.target.value)}
+                      style={styles.formInput}
+                      required
+                    />
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.formLabel}>Hora</label>
+                    <select
+                      value={slotTime}
+                      onChange={(e) => setSlotTime(e.target.value)}
+                      style={styles.formInput}
+                    >
+                      <option value="09:00 AM">09:00 AM</option>
+                      <option value="10:00 AM">10:00 AM</option>
+                      <option value="11:00 AM">11:00 AM</option>
+                      <option value="12:00 PM">12:00 PM</option>
+                      <option value="01:00 PM">01:00 PM</option>
+                      <option value="04:00 PM">04:00 PM</option>
+                      <option value="05:00 PM">05:00 PM</option>
+                      <option value="06:00 PM">06:00 PM</option>
+                    </select>
+                  </div>
+
+                  <button type="submit" style={styles.modalSubmitBtn}>
+                    Publicar Horario
                   </button>
                 </form>
               </div>
@@ -333,28 +750,45 @@ const styles = {
     color: "#94A3B8",
     lineHeight: 1.5,
     margin: "0 0 14px 0",
+    textAlign: "left",
   },
-  pendingFooter: {
+  notificationBanner: {
+    backgroundColor: "rgba(52, 211, 153, 0.08)",
+    border: "1px solid rgba(52, 211, 153, 0.25)",
+    borderRadius: 16,
+    padding: "14px 16px",
+    marginBottom: 24,
     display: "flex",
-    flexDirection: "column",
-    gap: 8,
-    borderTop: "1px solid rgba(251, 191, 36, 0.15)",
-    paddingTop: 12,
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12
   },
-  pendingCaption: {
-    fontSize: 10,
-    color: "#64748B",
+  notificationLeft: {
+    display: "flex",
+    gap: 10,
+    alignItems: "flex-start",
+    textAlign: "left",
   },
-  verifyBypassBtn: {
-    alignSelf: "flex-start",
-    backgroundColor: "#FBBF24",
-    color: "#000000",
-    border: "none",
-    borderRadius: 10,
-    padding: "8px 16px",
-    fontSize: 11,
+  notificationTitle: {
+    fontSize: 13,
     fontWeight: 700,
+    color: "#34D399",
+    display: "block",
+  },
+  notificationText: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginTop: 2,
+    display: "block",
+    lineHeight: 1.4,
+  },
+  notificationCloseBtn: {
+    background: "none",
+    border: "none",
+    color: "#64748B",
+    fontSize: 14,
     cursor: "pointer",
+    padding: 4,
   },
   statsGrid: {
     display: "flex",
@@ -430,6 +864,7 @@ const styles = {
     fontSize: 13,
     color: "#64748B",
     margin: 0,
+    textAlign: "left",
   },
   emptyActionBtn: {
     backgroundColor: "#A78BFA",
@@ -459,6 +894,7 @@ const styles = {
     display: "flex",
     gap: 12,
     alignItems: "center",
+    textAlign: "left",
   },
   avatarPill: {
     width: 38,
@@ -494,6 +930,18 @@ const styles = {
     fontSize: 12,
   },
   prescribeBtn: {
+    backgroundColor: "rgba(249, 115, 22, 0.15)",
+    border: "1px solid rgba(249, 115, 22, 0.3)",
+    color: "#F97316",
+    borderRadius: 12,
+    padding: "10px",
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+    textAlign: "center",
+    transition: "opacity 0.2s ease",
+  },
+  planBtn: {
     backgroundColor: "#A78BFA",
     color: "#000000",
     border: "none",
@@ -504,10 +952,84 @@ const styles = {
     cursor: "pointer",
     textAlign: "center",
     transition: "opacity 0.2s ease",
-    ":disabled": {
-      opacity: 0.5,
-      cursor: "not-allowed",
-    }
+  },
+  scheduleSection: {
+    backgroundColor: "#131316",
+    border: "1px solid #222227",
+    borderRadius: 24,
+    padding: "20px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    textAlign: "left",
+  },
+  subSubTitle: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: "#F8FAFC",
+    margin: "0 0 6px 0",
+    textTransform: "uppercase",
+    letterSpacing: "0.02em",
+  },
+  slotsList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  slotCardBooked: {
+    backgroundColor: "#0B0B0C",
+    border: "1px solid #222227",
+    borderRadius: 16,
+    padding: "12px 14px",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  slotDetails: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+    textAlign: "left",
+  },
+  slotPatientName: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: "#F8FAFC",
+  },
+  slotMeta: {
+    fontSize: 11,
+    color: "#94A3B8",
+  },
+  slotEmail: {
+    fontSize: 10,
+    color: "#64748B",
+  },
+  bookedBadge: {
+    backgroundColor: "rgba(52, 211, 153, 0.15)",
+    color: "#34D399",
+    border: "1px solid rgba(52, 211, 153, 0.3)",
+    borderRadius: 8,
+    padding: "4px 8px",
+    fontSize: 10,
+    fontWeight: 700,
+  },
+  slotsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
+    gap: 10,
+    marginTop: 6,
+  },
+  slotCardAvailable: {
+    backgroundColor: "#0B0B0C",
+    border: "1px solid #222227",
+    borderRadius: 12,
+    padding: "10px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 4,
+    fontSize: 11,
+    color: "#94A3B8",
   },
   emptyHistoryCard: {
     backgroundColor: "#131316",
@@ -539,6 +1061,7 @@ const styles = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "flex-start",
+    textAlign: "left",
   },
   historyRecipeName: {
     fontSize: 13,
@@ -566,7 +1089,7 @@ const styles = {
     color: "#94A3B8",
   },
 
-  // Modal / Drawer Add Patient
+  // Modal styles
   modalOverlay: {
     position: "fixed",
     inset: 0,
@@ -584,7 +1107,7 @@ const styles = {
     borderRadius: 24,
     padding: "24px",
     width: "100%",
-    maxWidth: 360,
+    maxWidth: 400,
     display: "flex",
     flexDirection: "column",
     gap: 16,
@@ -627,6 +1150,7 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: 6,
+    textAlign: "left",
   },
   formLabel: {
     fontSize: 11,
@@ -653,5 +1177,72 @@ const styles = {
     fontWeight: 700,
     cursor: "pointer",
     marginTop: 6,
+  },
+  row: {
+    display: "flex",
+    gap: 10,
+  },
+  portionsCard: {
+    backgroundColor: "rgba(167, 139, 250, 0.04)",
+    border: "1px solid rgba(167, 139, 250, 0.15)",
+    borderRadius: 14,
+    padding: "12px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  portionsTitle: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#C084FC",
+    margin: 0,
+  },
+  portionsSubtitle: {
+    fontSize: 10,
+    color: "#94A3B8",
+    margin: 0,
+    lineHeight: 1.3,
+  },
+  portionsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, 1fr)",
+    gap: "10px",
+    marginTop: "4px",
+  },
+  portionCol: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+  portionLabel: {
+    fontSize: 10,
+    color: "#E2E8F0",
+    fontWeight: 600,
+  },
+  portionCounter: {
+    display: "flex",
+    alignItems: "center",
+    backgroundColor: "#0B0B0C",
+    border: "1px solid rgba(167, 139, 250, 0.12)",
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  counterBtn: {
+    flex: 1,
+    backgroundColor: "transparent",
+    border: "none",
+    color: "#A78BFA",
+    fontSize: 14,
+    fontWeight: 700,
+    padding: "6px 0",
+    cursor: "pointer",
+    textAlign: "center",
+  },
+  counterVal: {
+    flex: 1.2,
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#FFF",
+    textAlign: "center",
   }
 };

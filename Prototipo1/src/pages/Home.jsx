@@ -4,11 +4,49 @@ import React, { useState } from "react";
 import { useApp } from "../context/AppContext";
 import { useHistory } from "react-router-dom";
 import { IonPage, IonContent, IonIcon } from "@ionic/react";
-import { searchOutline, flameOutline, timeOutline, closeCircleOutline } from "ionicons/icons";
+import { searchOutline, flameOutline, timeOutline, closeCircleOutline, cartOutline } from "ionicons/icons";
 
 export default function Home() {
-  const { userProfile, recipes, restaurants, activeRole, patientSelector, setPatientSelector } = useApp();
+  const { 
+    userProfile, 
+    recipes, 
+    restaurants, 
+    activeRole, 
+    patientSelector, 
+    setPatientSelector, 
+    prescriptions, 
+    addToCart, 
+    redeemPrescription 
+  } = useApp();
   const history = useHistory();
+
+  const patientPrescriptions = (prescriptions || []).filter(
+    (p) => p.patientEmail === userProfile?.email?.toLowerCase().trim() && p.status === "pending"
+  );
+
+  const handleOrderPrescription = async (pres) => {
+    const customizedItem = {
+      recipeId: pres.recipeId,
+      recipeName: `Receta: ${pres.recipeName}`,
+      imageUrl: pres.imageUrl || "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800&q=80",
+      gramsMap: pres.gramsMap,
+      finalPrice: pres.totalPrice,
+      macros: pres.macros,
+      breakdown: pres.breakdown || [],
+      isPrescribed: true,
+      prescriberName: pres.nutriologistName
+    };
+    addToCart(customizedItem);
+    await redeemPrescription(pres.id);
+    alert(`¡"${pres.recipeName}" recomendada por ${pres.nutriologistName} añadida al carrito!`);
+  };
+
+  const handleCustomizePrescription = (pres) => {
+    history.push({
+      pathname: `/customDish/${pres.recipeId}`,
+      state: { initialGrams: pres.gramsMap, prescriptionId: pres.id }
+    });
+  };
 
   const [activeCategory, setActiveCategory] = useState("Todos");
   const [searchQuery, setSearchQuery] = useState("");
@@ -97,6 +135,93 @@ export default function Home() {
               </button>
             ))}
           </div>
+
+          {/* Recomendaciones del Nutriólogo */}
+          {activeRole !== "nutriologist" && patientPrescriptions.length > 0 && (
+            <div style={styles.recommendationsSection}>
+              <div style={styles.sectionTitleRow}>
+                <h2 style={{ ...styles.sectionTitle, color: "#A78BFA" }}>🩺 Recomendaciones del Nutriólogo</h2>
+                <span style={{ ...styles.resultsCount, color: "#C084FC" }}>
+                  {patientPrescriptions.length} pendientes
+                </span>
+              </div>
+              <p style={styles.sectionSubtitle}>
+                Elige entre la recomendación hecha por tu nutriólogo al gramo o cualquiera de las bases normales de platillo.
+              </p>
+
+              <div style={styles.recommendationsContainer}>
+                {patientPrescriptions.map((pres) => (
+                  <div key={pres.id} style={styles.recommendationCard}>
+                    <div style={styles.recCardHeader}>
+                      <span style={styles.recDoctorTag}>🩺 Dr/a. {pres.nutriologistName}</span>
+                      <span style={styles.recStatusBadge}>Recetado</span>
+                    </div>
+
+                    <div style={styles.recCardBody}>
+                      <div style={styles.recImageWrapper}>
+                        <img
+                          src={pres.imageUrl || "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800&q=80"}
+                          alt={pres.recipeName}
+                          style={styles.recImage}
+                          onError={(e) => { e.target.style.display = "none"; }}
+                        />
+                      </div>
+                      
+                      <div style={styles.recDetails}>
+                        <h4 style={styles.recDishName}>{pres.recipeName}</h4>
+                        
+                        {/* Grams Breakdown */}
+                        <div style={styles.recGramsGrid}>
+                          {pres.breakdown && pres.breakdown.map((ing) => (
+                            <span key={ing.id} style={styles.recGramsTag}>
+                              {ing.name}: {ing.grams}g
+                            </span>
+                          ))}
+                        </div>
+
+                        {/* Macros Pill Grid */}
+                        <div style={styles.recMacrosRow}>
+                          <div style={styles.recMacroPill}>
+                            <span style={styles.recMacroVal}>{pres.macros.protein}g</span>
+                            <span style={styles.recMacroLbl}>Prot</span>
+                          </div>
+                          <div style={styles.recMacroPill}>
+                            <span style={styles.recMacroVal}>{pres.macros.carbs}g</span>
+                            <span style={styles.recMacroLbl}>Carb</span>
+                          </div>
+                          <div style={styles.recMacroPill}>
+                            <span style={styles.recMacroVal}>{pres.macros.fats}g</span>
+                            <span style={styles.recMacroLbl}>Gras</span>
+                          </div>
+                          <div style={{ ...styles.recMacroPill, borderColor: "rgba(52, 211, 153, 0.2)" }}>
+                            <span style={{ ...styles.recMacroVal, color: "#34D399" }}>{pres.macros.kcal}</span>
+                            <span style={styles.recMacroLbl}>Kcal</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div style={styles.recActions}>
+                      <button
+                        onClick={() => handleCustomizePrescription(pres)}
+                        style={styles.recCustomizeBtn}
+                      >
+                        Personalizar Platillo
+                      </button>
+                      <button
+                        onClick={() => handleOrderPrescription(pres)}
+                        style={styles.recOrderBtn}
+                      >
+                        <IonIcon icon={cartOutline} style={{ marginRight: 6 }} />
+                        Comprar Recomendación · ${pres.totalPrice.toFixed(2)} MXN
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Menu section */}
           <div style={styles.menuSection}>
@@ -460,5 +585,147 @@ const styles = {
     padding: "40px 20px",
     color: "#64748B",
     fontSize: 14,
+  },
+  recommendationsSection: {
+    marginBottom: 32,
+    backgroundColor: "rgba(167, 139, 250, 0.05)",
+    border: "1px solid rgba(167, 139, 250, 0.12)",
+    borderRadius: 24,
+    padding: 20,
+  },
+  recommendationsContainer: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+  },
+  recommendationCard: {
+    backgroundColor: "#131316",
+    border: "1px solid rgba(167, 139, 250, 0.18)",
+    borderRadius: 20,
+    padding: 16,
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+  },
+  recCardHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  recDoctorTag: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#C084FC",
+  },
+  recStatusBadge: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: "#C084FC",
+    backgroundColor: "rgba(167, 139, 250, 0.15)",
+    padding: "3px 8px",
+    borderRadius: 8,
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+  },
+  recCardBody: {
+    display: "flex",
+    gap: 14,
+    alignItems: "flex-start",
+  },
+  recImageWrapper: {
+    width: 68,
+    height: 68,
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: "#222227",
+    flexShrink: 0,
+  },
+  recImage: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+  },
+  recDetails: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  recDishName: {
+    fontSize: 15,
+    fontWeight: 700,
+    color: "#F8FAFC",
+    margin: 0,
+  },
+  recGramsGrid: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 4,
+    marginTop: 2,
+  },
+  recGramsTag: {
+    fontSize: 10,
+    color: "#94A3B8",
+    backgroundColor: "#1C1C22",
+    padding: "2px 6px",
+    borderRadius: 4,
+  },
+  recMacrosRow: {
+    display: "flex",
+    gap: 6,
+    marginTop: 4,
+  },
+  recMacroPill: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    border: "1px solid rgba(255, 255, 255, 0.06)",
+    borderRadius: 8,
+    padding: "4px 8px",
+    minWidth: 44,
+  },
+  recMacroVal: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: "#F8FAFC",
+  },
+  recMacroLbl: {
+    fontSize: 8,
+    color: "#64748B",
+    textTransform: "uppercase",
+  },
+  recActions: {
+    display: "flex",
+    gap: 10,
+    marginTop: 6,
+  },
+  recCustomizeBtn: {
+    flex: 1,
+    backgroundColor: "transparent",
+    border: "1px solid rgba(255, 255, 255, 0.15)",
+    color: "#E2E8F0",
+    borderRadius: 12,
+    padding: "10px 14px",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+    textAlign: "center",
+    transition: "all 0.2s ease",
+  },
+  recOrderBtn: {
+    flex: 1.3,
+    backgroundColor: "#A78BFA",
+    border: "none",
+    color: "#0B0B0C",
+    borderRadius: 12,
+    padding: "10px 14px",
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "all 0.2s ease",
   }
 };
