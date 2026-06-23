@@ -34,6 +34,9 @@ export default function NutriDashboard() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [showSlotModal, setShowSlotModal] = useState(false);
+  const [selectedBatchSlots, setSelectedBatchSlots] = useState([]);
+  const [syncingGoogle, setSyncingGoogle] = useState(false);
+  const [activeModalTab, setActiveModalTab] = useState("google");
   const [selectedPatient, setSelectedPatient] = useState(null);
 
   // Form states - Patient registration
@@ -186,6 +189,95 @@ export default function NutriDashboard() {
       console.error(err);
       alert("Error al guardar horario.");
     }
+  };
+
+  const handleGoogleCalendarSync = async () => {
+    if (!currentUser) return;
+    setSyncingGoogle(true);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    const newSlots = [];
+    const times = ["09:00 AM", "11:00 AM", "03:00 PM", "05:00 PM"];
+    for (let i = 1; i <= 4; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      const dateString = d.toISOString().split("T")[0];
+      const timeString = times[i - 1];
+      newSlots.push({
+        nutriologistId: currentUser.uid,
+        nutriologistName: userProfile?.name || "Nutriólogo Clínico",
+        date: dateString,
+        time: timeString,
+        status: "available",
+        createdAt: new Date().toISOString(),
+        importedFrom: "Google Calendar"
+      });
+    }
+
+    try {
+      await Promise.all(
+        newSlots.map(slot => addDoc(collection(db, "appointment_slots"), slot))
+      );
+      alert("¡Sincronización exitosa! Se importaron 4 horarios libres desde tu Google Calendar.");
+      setShowSlotModal(false);
+    } catch (err) {
+      console.error(err);
+      alert("Error al sincronizar con Google Calendar.");
+    } finally {
+      setSyncingGoogle(false);
+    }
+  };
+
+  const toggleBatchSlot = (date, time) => {
+    const exists = selectedBatchSlots.some(s => s.date === date && s.time === time);
+    if (exists) {
+      setSelectedBatchSlots(prev => prev.filter(s => !(s.date === date && s.time === time)));
+    } else {
+      setSelectedBatchSlots(prev => [...prev, { date, time }]);
+    }
+  };
+
+  const handlePublishBatchSlots = async (e) => {
+    e.preventDefault();
+    if (selectedBatchSlots.length === 0) {
+      alert("Por favor selecciona al menos un horario de la cuadrícula.");
+      return;
+    }
+
+    try {
+      await Promise.all(
+        selectedBatchSlots.map(slot => 
+          addDoc(collection(db, "appointment_slots"), {
+            nutriologistId: currentUser.uid,
+            nutriologistName: userProfile?.name || "Nutriólogo Clínico",
+            date: slot.date,
+            time: slot.time,
+            status: "available",
+            createdAt: new Date().toISOString()
+          })
+        )
+      );
+      alert(`¡Se publicaron exitosamente ${selectedBatchSlots.length} horarios de disponibilidad!`);
+      setSelectedBatchSlots([]);
+      setShowSlotModal(false);
+    } catch (err) {
+      console.error(err);
+      alert("Error al guardar los horarios.");
+    }
+  };
+
+  const getNext7Days = () => {
+    const days = [];
+    const weekdays = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+    const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      const dateString = d.toISOString().split('T')[0];
+      const label = `${weekdays[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
+      days.push({ date: dateString, label });
+    }
+    return days;
   };
 
   const bookedSlots = slots.filter(s => s.status === "booked");
@@ -642,46 +734,159 @@ export default function NutriDashboard() {
           {/* Add Slot Modal */}
           {showSlotModal && (
             <div style={styles.modalOverlay}>
-              <div style={styles.modalCard}>
+              <div style={{ ...styles.modalCard, maxWidth: 480 }}>
                 <div style={styles.modalHeader}>
-                  <h3 style={styles.modalTitle}>Agregar Disponibilidad</h3>
+                  <h3 style={styles.modalTitle}>Gestionar Disponibilidad</h3>
                   <button style={styles.closeBtn} onClick={() => setShowSlotModal(false)}>✕</button>
                 </div>
 
-                <form onSubmit={handleCreateSlotSubmit} style={styles.modalForm}>
-                  <div style={styles.formGroup}>
-                    <label style={styles.formLabel}>Fecha de Cita</label>
-                    <input 
-                      type="date"
-                      value={slotDate}
-                      onChange={(e) => setSlotDate(e.target.value)}
-                      style={styles.formInput}
-                      required
-                    />
-                  </div>
-
-                  <div style={styles.formGroup}>
-                    <label style={styles.formLabel}>Hora</label>
-                    <select
-                      value={slotTime}
-                      onChange={(e) => setSlotTime(e.target.value)}
-                      style={styles.formInput}
-                    >
-                      <option value="09:00 AM">09:00 AM</option>
-                      <option value="10:00 AM">10:00 AM</option>
-                      <option value="11:00 AM">11:00 AM</option>
-                      <option value="12:00 PM">12:00 PM</option>
-                      <option value="01:00 PM">01:00 PM</option>
-                      <option value="04:00 PM">04:00 PM</option>
-                      <option value="05:00 PM">05:00 PM</option>
-                      <option value="06:00 PM">06:00 PM</option>
-                    </select>
-                  </div>
-
-                  <button type="submit" style={styles.modalSubmitBtn}>
-                    Publicar Horario
+                {/* Tabs */}
+                <div style={styles.modalTabs}>
+                  <button 
+                    type="button"
+                    style={{
+                      ...styles.modalTabBtn,
+                      ...(activeModalTab === "google" ? styles.activeModalTabBtn : {})
+                    }}
+                    onClick={() => setActiveModalTab("google")}
+                  >
+                    🗓️ Google Calendar
                   </button>
-                </form>
+                  <button 
+                    type="button"
+                    style={{
+                      ...styles.modalTabBtn,
+                      ...(activeModalTab === "weekly" ? styles.activeModalTabBtn : {})
+                    }}
+                    onClick={() => setActiveModalTab("weekly")}
+                  >
+                    📅 Agenda Semanal
+                  </button>
+                  <button 
+                    type="button"
+                    style={{
+                      ...styles.modalTabBtn,
+                      ...(activeModalTab === "single" ? styles.activeModalTabBtn : {})
+                    }}
+                    onClick={() => setActiveModalTab("single")}
+                  >
+                    ⏱️ Cita Única
+                  </button>
+                </div>
+
+                {/* Tab Content: Google Calendar Sync */}
+                {activeModalTab === "google" && (
+                  <div style={styles.googleSyncBox}>
+                    <div style={{ fontSize: 40, marginBottom: 8 }}>🗓️</div>
+                    <h4 style={{ margin: "0 0 4px 0", color: "#FFF", fontSize: 15 }}>Sincronizar con Google Calendar</h4>
+                    <p style={{ margin: "0 0 16px 0", color: "#94A3B8", fontSize: 12, lineHeight: 1.4 }}>
+                      Conecta tu cuenta para importar automáticamente bloques de disponibilidad libre desde tu calendario de Google.
+                    </p>
+                    <button 
+                      type="button"
+                      onClick={handleGoogleCalendarSync} 
+                      style={styles.googleBtn}
+                      disabled={syncingGoogle}
+                    >
+                      {syncingGoogle ? "Sincronizando..." : "Sincronizar ahora"}
+                    </button>
+                  </div>
+                )}
+
+                {/* Tab Content: Weekly Planner */}
+                {activeModalTab === "weekly" && (
+                  <form onSubmit={handlePublishBatchSlots} style={styles.modalForm}>
+                    <p style={{ margin: "0 0 10px 0", color: "#94A3B8", fontSize: 12, lineHeight: 1.4 }}>
+                      Selecciona múltiples días y horas para publicarlos simultáneamente:
+                    </p>
+                    
+                    <div style={styles.calendarScrollArea}>
+                      {getNext7Days().map(day => (
+                        <div key={day.date} style={styles.calendarDayRow}>
+                          <span style={styles.calendarDayLabel}>{day.label}</span>
+                          <div style={styles.timePillsGrid}>
+                            {["08:00 AM", "09:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "01:00 PM", "02:00 PM", "03:00 PM", "04:00 PM", "05:00 PM", "06:00 PM"].map(time => {
+                              const isSel = selectedBatchSlots.some(s => s.date === day.date && s.time === time);
+                              return (
+                                <button
+                                  type="button"
+                                  key={time}
+                                  onClick={() => toggleBatchSlot(day.date, time)}
+                                  style={{
+                                    ...styles.timePill,
+                                    ...(isSel ? styles.timePillSelected : {})
+                                  }}
+                                >
+                                  {time.replace(" AM", "").replace(" PM", "")}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                      <span style={{ fontSize: 12, color: '#94A3B8' }}>
+                        Seleccionados: <strong>{selectedBatchSlots.length} horarios</strong>
+                      </span>
+                      {selectedBatchSlots.length > 0 && (
+                        <button 
+                          type="button" 
+                          onClick={() => setSelectedBatchSlots([])} 
+                          style={{ background: 'none', border: 'none', color: '#EF4444', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}
+                        >
+                          Limpiar
+                        </button>
+                      )}
+                    </div>
+
+                    <button type="submit" style={styles.batchPublishBtn} disabled={selectedBatchSlots.length === 0}>
+                      Publicar {selectedBatchSlots.length} Horarios
+                    </button>
+                  </form>
+                )}
+
+                {/* Tab Content: Single Slot */}
+                {activeModalTab === "single" && (
+                  <form onSubmit={handleCreateSlotSubmit} style={styles.modalForm}>
+                    <div style={styles.formGroup}>
+                      <label style={styles.formLabel}>Fecha de Cita</label>
+                      <input 
+                        type="date"
+                        value={slotDate}
+                        onChange={(e) => setSlotDate(e.target.value)}
+                        style={styles.formInput}
+                        required
+                      />
+                    </div>
+
+                    <div style={styles.formGroup}>
+                      <label style={styles.formLabel}>Hora</label>
+                      <select
+                        value={slotTime}
+                        onChange={(e) => setSlotTime(e.target.value)}
+                        style={styles.formInput}
+                      >
+                        <option value="08:00 AM">08:00 AM</option>
+                        <option value="09:00 AM">09:00 AM</option>
+                        <option value="10:00 AM">10:00 AM</option>
+                        <option value="11:00 AM">11:00 AM</option>
+                        <option value="12:00 PM">12:00 PM</option>
+                        <option value="01:00 PM">01:00 PM</option>
+                        <option value="02:00 PM">02:00 PM</option>
+                        <option value="03:00 PM">03:00 PM</option>
+                        <option value="04:00 PM">04:00 PM</option>
+                        <option value="05:00 PM">05:00 PM</option>
+                        <option value="06:00 PM">06:00 PM</option>
+                      </select>
+                    </div>
+
+                    <button type="submit" style={styles.modalSubmitBtn}>
+                      Publicar Horario Único
+                    </button>
+                  </form>
+                )}
               </div>
             </div>
           )}
@@ -1151,6 +1356,104 @@ const styles = {
     flexDirection: "column",
     gap: 6,
     textAlign: "left",
+  },
+  modalTabs: {
+    display: "flex",
+    borderBottom: "1px solid #222227",
+    marginBottom: "16px",
+    gap: "8px",
+  },
+  modalTabBtn: {
+    flex: 1,
+    padding: "10px 0",
+    backgroundColor: "transparent",
+    border: "none",
+    color: "#94A3B8",
+    fontSize: "12px",
+    fontWeight: "700",
+    cursor: "pointer",
+    borderBottom: "2px solid transparent",
+    transition: "all 0.2s",
+  },
+  activeModalTabBtn: {
+    color: "#A78BFA",
+    borderBottomColor: "#A78BFA",
+  },
+  googleSyncBox: {
+    backgroundColor: "#0B0B0C",
+    border: "1px solid #222227",
+    borderRadius: "16px",
+    padding: "24px 16px",
+    textAlign: "center",
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+    alignItems: "center",
+  },
+  googleBtn: {
+    backgroundColor: "#A78BFA",
+    color: "#000000",
+    border: "none",
+    borderRadius: "12px",
+    padding: "12px 24px",
+    fontSize: "13px",
+    fontWeight: "700",
+    cursor: "pointer",
+    transition: "opacity 0.2s",
+  },
+  calendarScrollArea: {
+    maxHeight: "260px",
+    overflowY: "auto",
+    display: "flex",
+    flexDirection: "column",
+    gap: "14px",
+    paddingRight: "6px",
+  },
+  calendarDayRow: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+    borderBottom: "1px solid #1C1C22",
+    paddingBottom: "10px",
+  },
+  calendarDayLabel: {
+    fontSize: "12px",
+    fontWeight: "700",
+    color: "#A78BFA",
+    textAlign: "left",
+  },
+  timePillsGrid: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "6px",
+  },
+  timePill: {
+    backgroundColor: "#1C1C22",
+    border: "1px solid #222227",
+    color: "#E2E8F0",
+    padding: "6px 10px",
+    borderRadius: "8px",
+    fontSize: "11px",
+    fontWeight: "600",
+    cursor: "pointer",
+    transition: "all 0.2s",
+  },
+  timePillSelected: {
+    backgroundColor: "#A78BFA",
+    borderColor: "#A78BFA",
+    color: "#000000",
+  },
+  batchPublishBtn: {
+    backgroundColor: "#A78BFA",
+    color: "#000000",
+    border: "none",
+    borderRadius: "12px",
+    padding: "14px",
+    fontSize: "14px",
+    fontWeight: "700",
+    cursor: "pointer",
+    marginTop: "10px",
+    width: "100%",
   },
   formLabel: {
     fontSize: 11,

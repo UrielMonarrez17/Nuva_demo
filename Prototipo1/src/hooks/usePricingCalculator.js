@@ -3,151 +3,112 @@
 import { useMemo } from "react";
 
 // ─── CONSTANTES DE NEGOCIO ────────────────────────────────────────────────────
-
 const PRICE_MULTIPLIER = 3;
 const MINIMUM_PRICE = 90;
 
-// ─── HELPERS PUROS (sin efectos secundarios, fáciles de testear) ──────────────
-
 /**
- * Calcula el costo total de los ingredientes seleccionados.
- * @param {Array} selectedIngredients - [{ costPerGram, grams }, ...]
- * @returns {number} costo en MXN
- */
-function calcIngredientCost(selectedIngredients) {
-  return selectedIngredients.reduce((total, ingredient) => {
-    const grams = ingredient.grams ?? 0;
-    const costPerGram = ingredient.costPerGram ?? 0;
-    return total + grams * costPerGram;
-  }, 0);
-}
-
-/**
- * Aplica la fórmula de precio final de Nomi.
- * precioFinal = (costoIngredientes + fixedCost) * 3
- * Si el resultado es menor a $90, el precio final es $90.
- * @param {number} ingredientCost
- * @param {number} fixedCost
- * @returns {number} precio final en MXN
- */
-function calcFinalPrice(ingredientCost, fixedCost) {
-  const productionCost = ingredientCost + fixedCost;
-  const rawPrice = productionCost * PRICE_MULTIPLIER;
-  return Math.max(rawPrice, MINIMUM_PRICE);
-}
-
-/**
- * Calcula los macronutrientes totales de los ingredientes seleccionados.
- * @param {Array} selectedIngredients - [{ proteinPerGram, carbPerGram, fatPerGram, kcalPerGram, grams }, ...]
- * @returns {{ protein: number, carbs: number, fats: number, kcal: number }}
- */
-function calcMacros(selectedIngredients) {
-  return selectedIngredients.reduce(
-    (totals, ingredient) => {
-      const grams = ingredient.grams ?? 0;
-      return {
-        protein: totals.protein + grams * (ingredient.proteinPerGram ?? 0),
-        carbs: totals.carbs + grams * (ingredient.carbPerGram ?? 0),
-        fats: totals.fats + grams * (ingredient.fatPerGram ?? 0),
-        kcal: totals.kcal + grams * (ingredient.kcalPerGram ?? 0),
-      };
-    },
-    { protein: 0, carbs: 0, fats: 0, kcal: 0 }
-  );
-}
-
-/**
- * Redondea todos los valores de un objeto de macros a 1 decimal.
- * @param {{ protein: number, carbs: number, fats: number, kcal: number }} macros
- * @returns {{ protein: number, carbs: number, fats: number, kcal: number }}
- */
-function roundMacros(macros) {
-  return {
-    protein: Math.round(macros.protein * 10) / 10,
-    carbs: Math.round(macros.carbs * 10) / 10,
-    fats: Math.round(macros.fats * 10) / 10,
-    kcal: Math.round(macros.kcal * 10) / 10,
-  };
-}
-
-// ─── ESTADO INICIAL ───────────────────────────────────────────────────────────
-
-const INITIAL_STATE = {
-  ingredientCost: 0,
-  productionCost: 0,
-  finalPrice: MINIMUM_PRICE,
-  macros: { protein: 0, carbs: 0, fats: 0, kcal: 0 },
-  breakdown: [],
-};
-
-// ─── HOOK PRINCIPAL ───────────────────────────────────────────────────────────
-
-/**
- * Hook que calcula precio y macros en tiempo real para un platillo de Nomi.
- *
- * @param {Array}  selectedIngredients - Lista de ingredientes con gramos seleccionados.
- *   Cada elemento debe tener la forma:
- *   {
- *     id: string,
- *     name: string,
- *     grams: number,          ← gramos seleccionados por el usuario (slider)
- *     costPerGram: number,
- *     proteinPerGram: number,
- *     carbPerGram: number,
- *     fatPerGram: number,
- *     kcalPerGram: number,
- *   }
- * @param {number} fixedCost - Costo fijo del platillo base (viene de base_recipes.fixedCost).
- *
+ * Hook que calcula el precio y macros en tiempo real para un platillo de Nomi.
+ * 
+ * @param {Array} unifiedIngredients - Array de ingredientes unificados (con macros y precio).
+ * @param {Object|number} gramsSelection - Objeto { [ingId]: gramos } seleccionado por el cliente, 
+ *                                        o fixedCost si se usa la firma anterior.
+ * @param {number} fixedCost - Costo fijo (si se usa la nueva firma).
+ * 
  * @returns {{
- *   ingredientCost: number,   ← suma de (gramos * costPerGram)
- *   productionCost: number,   ← ingredientCost + fixedCost
- *   finalPrice: number,       ← productionCost * 3, mínimo $90
- *   macros: {
- *     protein: number,        ← gramos de proteína total
- *     carbs: number,          ← gramos de carbohidratos total
- *     fats: number,           ← gramos de grasas total
- *     kcal: number,           ← kilocalorías totales
- *   },
- *   breakdown: Array,         ← detalle por ingrediente (para mostrar en UI)
- *   recalculate: Function,    ← función para forzar recalculo manual si se necesita
+ *   ingredientCost: number,
+ *   productionCost: number,
+ *   finalPrice: number,
+ *   macros: { protein: number, carbs: number, fats: number, kcal: number },
+ *   breakdown: Array,
+ *   recalculate: Function
  * }}
  */
-export function usePricingCalculator(selectedIngredients = [], fixedCost = 0) {
-  // Calculamos los valores de forma síncrona durante el render.
-  // Esto evita loops infinitos causados por dependencias de objetos.
-  if (!selectedIngredients || selectedIngredients.length === 0) {
-    return { ...INITIAL_STATE, recalculate: () => {} };
-  }
+export function usePricingCalculator(unifiedIngredients = [], gramsSelection = {}, fixedCost = 0) {
+  return useMemo(() => {
+    let ingredients = unifiedIngredients || [];
+    let selection = gramsSelection;
+    let costBase = fixedCost;
 
-  const ingredientCost = calcIngredientCost(selectedIngredients);
-  const productionCost = ingredientCost + fixedCost;
-  const finalPrice = calcFinalPrice(ingredientCost, fixedCost);
-  const rawMacros = calcMacros(selectedIngredients);
-  const macros = roundMacros(rawMacros);
+    // Soporte para firma anterior: usePricingCalculator(selectedIngredients = [], fixedCost = 0)
+    if (typeof gramsSelection === "number") {
+      costBase = gramsSelection;
+      selection = {};
+      ingredients = unifiedIngredients.map((ing) => {
+        if (ing && ing.id) {
+          selection[ing.id] = ing.grams ?? 0;
+        }
+        return ing;
+      });
+    }
 
-  const breakdown = selectedIngredients.map((ingredient) => {
-    const grams = ingredient.grams ?? 0;
-    return {
-      id: ingredient.id,
-      name: ingredient.name,
-      grams,
-      subtotalCost: Math.round(grams * ingredient.costPerGram * 100) / 100,
-      macros: roundMacros({
-        protein: grams * (ingredient.proteinPerGram ?? 0),
-        carbs: grams * (ingredient.carbPerGram ?? 0),
-        fats: grams * (ingredient.fatPerGram ?? 0),
-        kcal: grams * (ingredient.kcalPerGram ?? 0),
-      }),
+    // 1. Calcular el Costo de los Ingredientes
+    const ingredientCost = ingredients.reduce((total, ing) => {
+      if (!ing) return total;
+      // Buscamos los gramos por el id unificado o por masterIngredientId
+      const grams = selection[ing.id] ?? selection[ing.masterIngredientId] ?? ing.grams ?? 0;
+      const price = ing.pricePerGram ?? ing.costPerGram ?? 0;
+      return total + grams * price;
+    }, 0);
+
+    // 2. Aplicar la regla de precio final de Nomi: (Costo Ingredientes + Costo Fijo) * 3 con un mínimo de $90 MXN
+    const productionCost = ingredientCost + costBase;
+    const rawPrice = productionCost * PRICE_MULTIPLIER;
+    const finalPrice = Math.max(rawPrice, MINIMUM_PRICE);
+
+    // 3. Calcular los Macros Totales sumados
+    const rawMacros = ingredients.reduce(
+      (totals, ing) => {
+        if (!ing) return totals;
+        const grams = selection[ing.id] ?? selection[ing.masterIngredientId] ?? ing.grams ?? 0;
+        return {
+          protein: totals.protein + grams * (ing.proteinPerGram ?? 0),
+          carbs: totals.carbs + grams * (ing.carbPerGram ?? 0),
+          fats: totals.fats + grams * (ing.fatPerGram ?? 0),
+          kcal: totals.kcal + grams * (ing.kcalPerGram ?? 0),
+        };
+      },
+      { protein: 0, carbs: 0, fats: 0, kcal: 0 }
+    );
+
+    // Función auxiliar para redondear macros a 1 decimal
+    const roundToOneDecimal = (num) => Math.round(num * 10) / 10;
+
+    const macros = {
+      protein: roundToOneDecimal(rawMacros.protein),
+      carbs: roundToOneDecimal(rawMacros.carbs),
+      fats: roundToOneDecimal(rawMacros.fats),
+      kcal: roundToOneDecimal(rawMacros.kcal),
     };
-  });
 
-  return {
-    ingredientCost: Math.round(ingredientCost * 100) / 100,
-    productionCost: Math.round(productionCost * 100) / 100,
-    finalPrice: Math.round(finalPrice * 100) / 100,
-    macros,
-    breakdown,
-    recalculate: () => {}, // mock function for backwards compatibility
-  };
+    // 4. Calcular el desglose detallado para la UI
+    const breakdown = ingredients.map((ing) => {
+      const grams = selection[ing.id] ?? selection[ing.masterIngredientId] ?? ing.grams ?? 0;
+      const price = ing.pricePerGram ?? ing.costPerGram ?? 0;
+      return {
+        id: ing.id,
+        masterIngredientId: ing.masterIngredientId || ing.id,
+        name: ing.name,
+        grams,
+        averageWeightPerUnit: ing.averageWeightPerUnit || 0,
+        unitName: ing.unitName || "",
+        defaultGrams: ing.defaultGrams || 100,
+        subtotalCost: Math.round(grams * price * 100) / 100,
+        macros: {
+          protein: roundToOneDecimal(grams * (ing.proteinPerGram ?? 0)),
+          carbs: roundToOneDecimal(grams * (ing.carbPerGram ?? 0)),
+          fats: roundToOneDecimal(grams * (ing.fatPerGram ?? 0)),
+          kcal: roundToOneDecimal(grams * (ing.kcalPerGram ?? 0)),
+        },
+      };
+    });
+
+    return {
+      ingredientCost: Math.round(ingredientCost * 100) / 100,
+      productionCost: Math.round(productionCost * 100) / 100,
+      finalPrice: Math.round(finalPrice * 100) / 100,
+      macros,
+      breakdown,
+      recalculate: () => {}, // mantener compatibilidad
+    };
+  }, [unifiedIngredients, gramsSelection, fixedCost]);
 }

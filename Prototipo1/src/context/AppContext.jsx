@@ -180,7 +180,7 @@ const MOCK_RECIPES = [
     allowedIngredients: ["ing_pollo", "ing_arroz", "ing_aguacate", "ing_brocoli"],
     description: "Tazón de arroz integral caliente, pechuga de pollo tierna bañado en salsa teriyaki baja en sodio, aguacate y brócoli fresco.",
     estimatedPrepTime: 12,
-    category: "Bowl",
+    category: "Pollo",
     restaurantId: "rest_nativa",
     tags: ["Alto en Proteína", "Bajo en Grasa", "Popular"]
   },
@@ -192,7 +192,7 @@ const MOCK_RECIPES = [
     allowedIngredients: ["ing_salmon", "ing_quinoa", "ing_aguacate", "ing_brocoli"],
     description: "Salmón a la plancha sobre una base de quinoa ligera, acompañado de rebanadas de aguacate fresco y brócoli.",
     estimatedPrepTime: 15,
-    category: "Bowl",
+    category: "Salmón",
     restaurantId: "rest_green",
     tags: ["Omega 3", "Keto", "Premium"]
   },
@@ -216,7 +216,7 @@ const MOCK_RECIPES = [
     allowedIngredients: ["ing_avena", "ing_manzana"],
     description: "Bowl de avena calientita con trozos de manzana fresca, ideal para un desayuno energético.",
     estimatedPrepTime: 10,
-    category: "Desayuno",
+    category: "Avena",
     restaurantId: "rest_green",
     tags: ["Desayuno", "Energía", "Dulce"]
   },
@@ -228,7 +228,7 @@ const MOCK_RECIPES = [
     allowedIngredients: ["ing_pollo", "ing_brocoli", "ing_arroz"],
     description: "Clásico plato de pollo a la plancha acompañado de brócoli al vapor y arroz blanco, perfecto para ganar masa muscular.",
     estimatedPrepTime: 15,
-    category: "Plato Fuerte",
+    category: "Pollo",
     restaurantId: "rest_nativa",
     tags: ["Clásico", "Alto en Proteína"]
   },
@@ -252,7 +252,7 @@ const MOCK_RECIPES = [
     allowedIngredients: ["ing_avena", "ing_manzana"],
     description: "Deliciosa avena horneada con toques de canela y trozos de manzana caramelizada. Un desayuno reconfortante.",
     estimatedPrepTime: 20,
-    category: "Desayuno",
+    category: "Avena",
     restaurantId: "rest_green",
     tags: ["Dulce", "Fibra"]
   }
@@ -357,6 +357,37 @@ export function AppProvider({ children }) {
       unsubRecipes = onSnapshot(collection(db, "base_recipes"), (snapshot) => {
         if (!snapshot.empty) {
           const rList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          
+          // Auto-migrate recipe categories if they don't match the new naming
+          rList.forEach(async (recipe) => {
+            let correctCategory = recipe.category;
+            const nameLower = recipe.name.toLowerCase();
+            
+            if (nameLower.includes("pollo")) {
+              correctCategory = "Pollo";
+            } else if (nameLower.includes("salmón") || nameLower.includes("salmon") || nameLower.includes("salmo")) {
+              correctCategory = "Salmón";
+            } else if (nameLower.includes("avena")) {
+              correctCategory = "Avena";
+            } else if (nameLower.includes("wrap")) {
+              correctCategory = "Wrap";
+            } else if (nameLower.includes("bowl") || nameLower.includes("tazón") || nameLower.includes("tazon")) {
+              correctCategory = "Bowl";
+            } else if (nameLower.includes("tofu")) {
+              correctCategory = "Tofu";
+            }
+
+            if (correctCategory && recipe.category !== correctCategory) {
+              try {
+                const recipeRef = doc(db, "base_recipes", recipe.id);
+                await updateDoc(recipeRef, { category: correctCategory });
+                console.log(`Updated recipe ${recipe.name} category to ${correctCategory}`);
+              } catch (e) {
+                console.warn(`Failed to update recipe category in Firestore:`, e);
+              }
+            }
+          });
+
           setRecipes(rList);
         }
       }, err => console.log("Firebase recipes listen error, using mock:", err));
@@ -626,7 +657,8 @@ export function AppProvider({ children }) {
           finalPrice: item.finalPrice,
           gramsMap: item.gramsMap,
           macros: item.macros,
-          customizedIngredients: item.breakdown
+          customizedIngredients: item.breakdown,
+          selectedOptions: item.selectedOptions || []
         };
       }),
       address: addressStr,
@@ -886,6 +918,38 @@ export function AppProvider({ children }) {
     }
   };
 
+  const registerRestaurantPending = async (name, email, password, restaurantName, address, lat, lng) => {
+    setLoading(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      
+      const profile = {
+        name,
+        email,
+        role: "restaurant",
+        status: "pending_verification",
+        restaurantName,
+        address,
+        lat: parseFloat(lat) || 19.4326,
+        lng: parseFloat(lng) || -99.1332,
+        createdAt: new Date().toISOString()
+      };
+      
+      await setDoc(doc(db, "users", user.uid), profile);
+      
+      setCurrentUser(user);
+      setUserProfile({ uid: user.uid, ...profile });
+      setActiveRole("restaurant");
+      setLoading(false);
+      return { success: true };
+    } catch (error) {
+      console.error("Register restaurant failed:", error);
+      setLoading(false);
+      return { success: false, error: error.message };
+    }
+  };
+
 
 
   return (
@@ -924,7 +988,8 @@ export function AppProvider({ children }) {
         confirmOrderDelivery,
         createNutritionalPlan,
         autoGeneratePlan,
-        registerRestaurant
+        registerRestaurant,
+        registerRestaurantPending
       }}
     >
       {children}

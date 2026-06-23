@@ -50,6 +50,8 @@ const ingredients = [
       maxGrams: 300,
       defaultGrams: 150,
       unit: "g",
+      unitName: "porción",
+      averageWeightPerUnit: 150,
     },
   },
   {
@@ -65,6 +67,8 @@ const ingredients = [
       maxGrams: 300,
       defaultGrams: 100,
       unit: "g",
+      unitName: "taza",
+      averageWeightPerUnit: 100,
     },
   },
   {
@@ -80,6 +84,8 @@ const ingredients = [
       maxGrams: 150,
       defaultGrams: 60,
       unit: "g",
+      unitName: "aguacate",
+      averageWeightPerUnit: 60,
     },
   },
   {
@@ -95,6 +101,8 @@ const ingredients = [
       maxGrams: 250,
       defaultGrams: 120,
       unit: "g",
+      unitName: "filete",
+      averageWeightPerUnit: 120,
     },
   },
   {
@@ -110,6 +118,8 @@ const ingredients = [
       maxGrams: 250,
       defaultGrams: 80,
       unit: "g",
+      unitName: "taza",
+      averageWeightPerUnit: 80,
     },
   },
   {
@@ -125,6 +135,8 @@ const ingredients = [
       maxGrams: 300,
       defaultGrams: 150,
       unit: "g",
+      unitName: "porción",
+      averageWeightPerUnit: 150,
     },
   },
   {
@@ -140,6 +152,8 @@ const ingredients = [
       maxGrams: 200,
       defaultGrams: 80,
       unit: "g",
+      unitName: "taza",
+      averageWeightPerUnit: 80,
     },
   },
   {
@@ -155,6 +169,8 @@ const ingredients = [
       maxGrams: 150,
       defaultGrams: 50,
       unit: "g",
+      unitName: "taza",
+      averageWeightPerUnit: 50,
     },
   },
   {
@@ -170,6 +186,8 @@ const ingredients = [
       maxGrams: 150,
       defaultGrams: 40,
       unit: "g",
+      unitName: "taza",
+      averageWeightPerUnit: 40,
     },
   },
 ];

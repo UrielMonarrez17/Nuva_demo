@@ -1,0 +1,92 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if the user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check the user's role from the users collection
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    // Helper function to check if the user is an admin
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() == 'admin';
+    }
+
+    // Helper function to check if the user is a nutritionist
+    function isNutriologist() {
+      return isAuthenticated() && getUserRole() == 'nutriologist';
+    }
+
+    // Helper function to check if user document is their own
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Users Collection rules
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      // Allow creation if the user is creating their own document, or if request is made by an admin
+      allow create, update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Restaurants Collection rules
+    // NOTE: KDS login page lists restaurants without a Firebase Auth session (uses mock password).
+    match /restaurants/{restaurantId} {
+      allow read: if true;
+      allow write: if true; // Set to true to allow KDS managing restaurants
+    }
+
+    // Base Recipes (base_recipes) rules
+    // NOTE: KDS requires editing base recipes and predicting final costs without Firebase Auth.
+    match /base_recipes/{recipeId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Ingredients rules
+    // NOTE: KDS requires editing ingredient prices and portion mappings.
+    match /ingredients/{ingredientId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Orders Collection rules
+    // NOTE: KDS requires reading incoming orders and updating status (Ready/Delivered) without auth.
+    match /orders/{orderId} {
+      allow read, write: if true;
+    }
+
+    // Appointment Slots (appointment_slots) rules
+    match /appointment_slots/{slotId} {
+      allow read, write: if true;
+    }
+
+    // User Meal Plans (user_meal_plans) rules
+    match /user_meal_plans/{planId} {
+      allow read, write: if isAuthenticated() 
+                          && (
+                            (resource != null && resource.data.userId == request.auth.uid) ||
+                            (request.resource != null && request.resource.data.userId == request.auth.uid)
+                          );
+    }
+
+    // Nutritional Plans (nutritional_plans) rules
+    match /nutritional_plans/{planId} {
+      allow read: if true;
+      allow write: if isNutriologist() || isAdmin() || true;
+    }
+
+    // Prescriptions rules
+    match /prescriptions/{prescId} {
+      allow read: if true;
+      allow write: if isNutriologist() || isAdmin() || true;
+    }
+  }
+}

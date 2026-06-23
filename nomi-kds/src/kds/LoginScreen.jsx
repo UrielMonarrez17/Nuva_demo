@@ -1,35 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { db } from '../firebase/firebaseconfig';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 
 export default function LoginScreen({ onLogin }) {
-  const [restaurants, setRestaurants] = useState([]);
-  const [selectedRest, setSelectedRest] = useState('all');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    async function fetchRestaurants() {
-      try {
-        const querySnapshot = await getDocs(collection(db, 'restaurants'));
-        const list = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          name: doc.data().name
-        }));
-        setRestaurants(list);
-      } catch (err) {
-        console.error('Error fetching restaurants for login:', err);
-      }
-    }
-    fetchRestaurants();
-  }, []);
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!username.trim()) {
-      setError('Por favor ingresa un nombre de usuario.');
+      setError('Por favor ingresa tu usuario.');
       return;
     }
     if (!password) {
@@ -40,20 +22,44 @@ export default function LoginScreen({ onLogin }) {
     setLoading(true);
     setError('');
 
-    // Mock validation for demo purposes: password is 'admin' or matches user
-    setTimeout(() => {
-      if (password === 'admin' || password === '1234') {
-        let name = 'Administrador General';
-        if (selectedRest !== 'all') {
-          const found = restaurants.find(r => r.id === selectedRest);
-          if (found) name = found.name;
+    try {
+      // Query the users collection directly for username and password fields
+      const q = query(
+        collection(db, 'users'),
+        where('username', '==', username.trim()),
+        where('password', '==', password)
+      );
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        const userDoc = querySnapshot.docs[0];
+        const profile = userDoc.data();
+
+        // Check user roles
+        if (profile.role === 'admin') {
+          // Admin can see all kitchens
+          onLogin('all', profile.name || username, 'Administrador General');
+        } else if (profile.role === 'restaurant' || profile.role === 'nutriologist') {
+          // Verify they have a restaurant assigned
+          if (!profile.restaurantId) {
+            setError('Tu cuenta no tiene un ID de restaurante asignado en la base de datos.');
+            setLoading(false);
+            return;
+          }
+          onLogin(profile.restaurantId, profile.name || username, profile.restaurantName || 'Cocina Nomi');
+        } else {
+          setError('Acceso denegado. Este panel es exclusivo para personal del restaurante.');
+          setLoading(false);
         }
-        onLogin(selectedRest, username, name);
       } else {
-        setError('Contraseña incorrecta. (Prueba con "admin")');
+        setError('Usuario o contraseña incorrectos.');
         setLoading(false);
       }
-    }, 800);
+    } catch (err) {
+      console.error('Error during custom login query:', err);
+      setError('Error al consultar la base de datos. Verifica tu conexión.');
+      setLoading(false);
+    }
   };
 
   return (
@@ -66,32 +72,19 @@ export default function LoginScreen({ onLogin }) {
 
         <form onSubmit={handleSubmit} style={styles.form}>
           <h2 style={styles.title}>Iniciar Sesión</h2>
-          <p style={styles.subtitle}>Selecciona tu cocina y accede al panel de control</p>
+          <p style={styles.subtitle}>Ingresa tu usuario y contraseña asignados por la administración</p>
 
           {error && <div style={styles.errorBox}>{error}</div>}
-
-          <div style={styles.inputGroup}>
-            <label style={styles.label}>Cocina / Restaurante</label>
-            <select
-              style={styles.select}
-              value={selectedRest}
-              onChange={(e) => setSelectedRest(e.target.value)}
-            >
-              <option value="all">Administrador (Todas las cocinas)</option>
-              {restaurants.map(r => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-            </select>
-          </div>
 
           <div style={styles.inputGroup}>
             <label style={styles.label}>Nombre de Usuario</label>
             <input
               type="text"
-              placeholder="Ej. Chef Carlos"
+              placeholder="Ej. chef_roma"
               style={styles.input}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
+              required
             />
           </div>
 
@@ -103,8 +96,8 @@ export default function LoginScreen({ onLogin }) {
               style={styles.input}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              required
             />
-            <span style={styles.hint}>Contraseña demo: admin</span>
           </div>
 
           <button type="submit" disabled={loading} style={styles.submitBtn}>
@@ -183,11 +176,13 @@ const styles = {
     borderRadius: '10px',
     fontSize: '13px',
     fontWeight: 500,
+    textAlign: 'left',
   },
   inputGroup: {
     display: 'flex',
     flexDirection: 'column',
     gap: '8px',
+    textAlign: 'left',
   },
   label: {
     fontSize: '13px',
@@ -202,27 +197,8 @@ const styles = {
     color: '#FFF',
     fontSize: '14px',
     outline: 'none',
-    transition: 'border-color 0.2s, box-shadow 0.2s',
-    ':focus': {
-      borderColor: '#F97316',
-      boxShadow: '0 0 8px rgba(249, 115, 22, 0.2)',
-    }
-  },
-  select: {
-    backgroundColor: '#0F0F0F',
-    border: '1px solid #1C1C1C',
-    borderRadius: '12px',
-    padding: '14px',
-    color: '#FFF',
-    fontSize: '14px',
-    outline: 'none',
-    cursor: 'pointer',
-    appearance: 'none',
-  },
-  hint: {
-    fontSize: '11px',
-    color: '#6B6B6B',
-    marginTop: '4px',
+    boxSizing: 'border-box',
+    width: '100%',
   },
   submitBtn: {
     backgroundColor: '#F97316',
@@ -233,17 +209,11 @@ const styles = {
     fontSize: '15px',
     fontWeight: 700,
     cursor: 'pointer',
-    transition: 'transform 0.2s, background-color 0.2s, box-shadow 0.2s',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: '10px',
     boxShadow: '0 4px 12px rgba(249, 115, 22, 0.2)',
-    ':hover': {
-      backgroundColor: '#EA580C',
-      transform: 'translateY(-1px)',
-      boxShadow: '0 6px 16px rgba(249, 115, 22, 0.3)',
-    }
   },
   spinner: {
     width: '20px',

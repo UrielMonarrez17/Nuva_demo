@@ -1,6 +1,6 @@
 // src/pages/ProfileScreen.jsx
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useApp } from "../context/AppContext";
 import { useHistory } from "react-router-dom";
 import { IonPage, IonContent, IonIcon } from "@ionic/react";
@@ -13,6 +13,9 @@ import {
   documentTextOutline,
   chevronForwardOutline
 } from "ionicons/icons";
+import MapPicker from "../components/MapPicker";
+import { db } from "../firebase/firebaseconfig";
+import { collection, query, where, onSnapshot, doc, updateDoc, addDoc } from "firebase/firestore";
 
 export default function ProfileScreen() {
   const { 
@@ -26,18 +29,30 @@ export default function ProfileScreen() {
   } = useApp();
   
   const history = useHistory();
-  const [isDevAdmin, setIsDevAdmin] = useState(false);
   const [showRestModal, setShowRestModal] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
   
   // Form states
   const [restName, setRestName] = useState("");
   const [restAddress, setRestAddress] = useState("");
-  const [restLat, setRestLat] = useState("19.414");
-  const [restLng, setRestLng] = useState("-99.171");
+  const [restLat, setRestLat] = useState("19.4326");
+  const [restLng, setRestLng] = useState("-99.1332");
   const [restImage, setRestImage] = useState("");
   const [restRating, setRestRating] = useState("4.8");
   const [restDeliveryTime, setRestDeliveryTime] = useState("20-30 min");
   const [loadingRest, setLoadingRest] = useState(false);
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setRestImage(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleLogout = async () => {
     if (window.confirm("¿Seguro que deseas cerrar tu sesión?")) {
@@ -48,7 +63,60 @@ export default function ProfileScreen() {
 
   const isNutriologist = userProfile?.role === "nutriologist";
   const isVerified = userProfile?.status === "verified";
-  const isAdmin = userProfile?.role === "admin" || isDevAdmin;
+  const isAdmin = userProfile?.role === "admin";
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    
+    const q = query(
+      collection(db, "users"),
+      where("role", "==", "restaurant"),
+      where("status", "==", "pending_verification")
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPendingRequests(list);
+    });
+    
+    return () => unsubscribe();
+  }, [isAdmin]);
+
+  const handleApproveRestaurant = async (req) => {
+    if (window.confirm(`¿Confirmas que deseas aprobar el restaurante "${req.restaurantName}" y habilitarlo para operar?`)) {
+      try {
+        setLoadingRequests(true);
+        
+        // 1. Create a document in restaurants collection
+        const newRest = {
+          name: req.restaurantName,
+          address: req.address,
+          lat: parseFloat(req.lat) || 19.4326,
+          lng: parseFloat(req.lng) || -99.1332,
+          imageUrl: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&q=80",
+          rating: 4.5,
+          deliveryTime: "25-35 min",
+          createdAt: new Date().toISOString()
+        };
+        const restRef = await addDoc(collection(db, "restaurants"), newRest);
+        
+        // 2. Update the user document to verified and set restaurantId
+        const userRef = doc(db, "users", req.id);
+        await updateDoc(userRef, {
+          status: "verified",
+          restaurantId: restRef.id,
+          restaurantName: req.restaurantName
+        });
+        
+        alert("¡Restaurante aprobado con éxito! Se ha generado su ID de cocina y habilitado su cuenta.");
+      } catch (e) {
+        console.error(e);
+        alert("Ocurrió un error al aprobar el restaurante.");
+      } finally {
+        setLoadingRequests(false);
+      }
+    }
+  };
 
   return (
     <IonPage>
@@ -91,18 +159,6 @@ export default function ProfileScreen() {
                     {isVerified ? "Cédula Verificada" : "Pendiente de Cédula"}
                   </span>
                 )}
-
-                <button 
-                  type="button" 
-                  onClick={() => setIsDevAdmin(!isDevAdmin)} 
-                  style={{
-                    ...styles.devAdminBtn,
-                    backgroundColor: isDevAdmin ? "rgba(52, 211, 153, 0.2)" : "rgba(255,255,255,0.05)",
-                    color: isDevAdmin ? "#34D399" : "#64748B"
-                  }}
-                >
-                  {isDevAdmin ? "Admin Activo" : "Activar Admin Demo"}
-                </button>
               </div>
             </div>
           </div>
@@ -187,23 +243,50 @@ export default function ProfileScreen() {
             </div>
           </div>
 
-          {/* Admin Panel */}
-          {isAdmin && (
-            <div style={styles.section}>
-              <h3 style={styles.sectionTitle}>Panel de Administrador</h3>
-              <p style={styles.sectionDesc}>Funciones de administración global de la plataforma.</p>
-              
-              <div style={styles.menuItem} onClick={() => setShowRestModal(true)}>
-                <div style={styles.menuItemLeft}>
-                  <div style={{...styles.iconWrapper, backgroundColor: "rgba(52, 211, 153, 0.1)", color: "#34D399"}}>
-                    🏢
-                  </div>
-                  <span>Registrar Nuevo Restaurante</span>
-                </div>
-                <IonIcon icon={chevronForwardOutline} style={styles.chevron} />
-              </div>
-            </div>
-          )}
+           {/* Admin Panel */}
+           {isAdmin && (
+             <div style={styles.section}>
+               <h3 style={styles.sectionTitle}>Panel de Administrador</h3>
+               <p style={styles.sectionDesc}>Funciones de administración global de la plataforma.</p>
+               
+               <div style={{ ...styles.menuItem, marginBottom: 16 }} onClick={() => setShowRestModal(true)}>
+                 <div style={styles.menuItemLeft}>
+                   <div style={{...styles.iconWrapper, backgroundColor: "rgba(52, 211, 153, 0.1)", color: "#34D399"}}>
+                     🏢
+                   </div>
+                   <span>Registrar Nuevo Restaurante Manual</span>
+                 </div>
+                 <IonIcon icon={chevronForwardOutline} style={styles.chevron} />
+               </div>
+
+               {/* Pending Requests Queue */}
+               <h4 style={{ ...styles.sectionTitle, fontSize: 13, marginTop: 20, color: '#F97316' }}>Postulaciones de Restaurantes</h4>
+               {pendingRequests.length === 0 ? (
+                 <p style={{ ...styles.sectionDesc, fontStyle: 'italic' }}>No hay solicitudes de restaurante pendientes por verificar.</p>
+               ) : (
+                 <div style={styles.requestsContainer}>
+                   {pendingRequests.map(req => (
+                     <div key={req.id} style={styles.requestCard}>
+                       <div style={{ textAlign: 'left' }}>
+                         <strong style={styles.reqName}>{req.restaurantName}</strong>
+                         <span style={styles.reqDetail}>Encargado: {req.name} ({req.email})</span>
+                         <span style={styles.reqDetail}>Dirección: {req.address}</span>
+                         <span style={styles.reqDetail}>Coordenadas: {req.lat}, {req.lng}</span>
+                       </div>
+                       <button
+                         type="button"
+                         onClick={() => handleApproveRestaurant(req)}
+                         disabled={loadingRequests}
+                         style={styles.approveBtn}
+                       >
+                         {loadingRequests ? "Procesando..." : "Aprobar y Vincular Cocina 🏢"}
+                       </button>
+                     </div>
+                   ))}
+                 </div>
+               )}
+             </div>
+           )}
 
           {/* Register Restaurant Modal */}
           {showRestModal && (
@@ -253,10 +336,21 @@ export default function ProfileScreen() {
                   </div>
 
                   <div style={styles.formGroup}>
-                    <label style={styles.formLabel}>Dirección física</label>
+                    <label style={styles.formLabel}>Ubicación en Mapa (Consigue ubicación en tiempo real)</label>
+                    <MapPicker
+                      onConfirm={(loc) => {
+                        setRestLat(loc.lat.toString());
+                        setRestLng(loc.lng.toString());
+                        setRestAddress(loc.address);
+                      }}
+                    />
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.formLabel}>Dirección física (Confirmada en mapa)</label>
                     <input
                       type="text"
-                      placeholder="Ej. Col. Roma Norte, CDMX"
+                      placeholder="Haz click en el mapa para obtener la dirección"
                       value={restAddress}
                       onChange={(e) => setRestAddress(e.target.value)}
                       style={styles.formInput}
@@ -264,38 +358,36 @@ export default function ProfileScreen() {
                     />
                   </div>
 
-                  <div style={styles.row}>
-                    <div style={{ ...styles.formGroup, flex: 1 }}>
-                      <label style={styles.formLabel}>Latitud (Mapa)</label>
-                      <input
-                        type="number"
-                        step="0.0001"
-                        value={restLat}
-                        onChange={(e) => setRestLat(e.target.value)}
-                        style={styles.formInput}
-                      />
-                    </div>
-                    <div style={{ ...styles.formGroup, flex: 1 }}>
-                      <label style={styles.formLabel}>Longitud (Mapa)</label>
-                      <input
-                        type="number"
-                        step="0.0001"
-                        value={restLng}
-                        onChange={(e) => setRestLng(e.target.value)}
-                        style={styles.formInput}
-                      />
-                    </div>
-                  </div>
-
                   <div style={styles.formGroup}>
-                    <label style={styles.formLabel}>URL de Imagen de portada</label>
-                    <input
-                      type="text"
-                      placeholder="https://images.unsplash.com/..."
-                      value={restImage}
-                      onChange={(e) => setRestImage(e.target.value)}
-                      style={styles.formInput}
-                    />
+                    <label style={styles.formLabel}>Imagen de Portada (Sube desde ordenador o ingresa URL)</label>
+                    <div style={styles.row}>
+                      <input
+                        type="text"
+                        placeholder="https://images.unsplash.com/..."
+                        value={restImage.startsWith("data:") ? "Imagen cargada localmente" : restImage}
+                        onChange={(e) => setRestImage(e.target.value)}
+                        style={{ ...styles.formInput, flex: 1 }}
+                        disabled={restImage.startsWith("data:")}
+                      />
+                      <label htmlFor="rest-image-upload" style={styles.uploadBtn}>
+                        📁 Subir
+                      </label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        id="rest-image-upload"
+                        onChange={handleFileChange}
+                        style={{ display: "none" }}
+                      />
+                    </div>
+                    {restImage && (
+                      <div style={styles.imagePreviewContainer}>
+                        <img src={restImage} alt="Preview" style={styles.imagePreview} />
+                        <button type="button" onClick={() => setRestImage("")} style={styles.clearImageBtn}>
+                          ✕ Quitar
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div style={styles.row}>
@@ -648,5 +740,83 @@ const styles = {
     fontWeight: 700,
     cursor: 'pointer',
     marginTop: '10px',
+  },
+  uploadBtn: {
+    backgroundColor: "#222227",
+    color: "#fff",
+    border: "1px solid #333336",
+    padding: "12px 16px",
+    borderRadius: "10px",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: "600",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  imagePreviewContainer: {
+    position: "relative",
+    borderRadius: "12px",
+    overflow: "hidden",
+    marginTop: "8px",
+    border: "1px solid #222227",
+  },
+  imagePreview: {
+    width: "100%",
+    height: "120px",
+    objectFit: "cover",
+    display: "block",
+  },
+  clearImageBtn: {
+    position: "absolute",
+    top: "8px",
+    right: "8px",
+    backgroundColor: "rgba(239, 68, 68, 0.9)",
+    border: "none",
+    borderRadius: "6px",
+    color: "#FFF",
+    padding: "4px 8px",
+    fontSize: "11px",
+    fontWeight: "700",
+    cursor: "pointer",
+  },
+  requestsContainer: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+    marginTop: "10px",
+  },
+  requestCard: {
+    backgroundColor: "#131316",
+    border: "1px solid #222227",
+    borderRadius: "16px",
+    padding: "16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+  reqName: {
+    fontSize: "14px",
+    fontWeight: "700",
+    color: "#F8FAFC",
+    display: "block",
+  },
+  reqDetail: {
+    fontSize: "12px",
+    color: "#94A3B8",
+    display: "block",
+    marginTop: "2px",
+  },
+  approveBtn: {
+    backgroundColor: "#34D399",
+    color: "#000000",
+    border: "none",
+    borderRadius: "10px",
+    padding: "10px 14px",
+    fontSize: "12px",
+    fontWeight: "700",
+    cursor: "pointer",
+    alignSelf: "flex-end",
+    transition: "opacity 0.2s",
   }
 };

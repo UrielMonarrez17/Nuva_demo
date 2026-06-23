@@ -40,19 +40,27 @@ function MacroBadge({ label, value, unit, color }) {
   );
 }
 
-function IngredientSlider({ ingredient, grams, onChange }) {
-  const percentage =
+function IngredientSlider({ ingredient, grams, onChange, isExcluded, onToggleExclude }) {
+  const percentage = isExcluded ? 0 :
     ((grams - ingredient.minGrams) / (ingredient.maxGrams - ingredient.minGrams)) * 100;
 
   return (
-    <div style={styles.sliderCard}>
+    <div style={{ ...styles.sliderCard, opacity: isExcluded ? 0.5 : 1 }}>
       {/* Encabezado del ingrediente */}
       <div style={styles.sliderHeader}>
-        <span style={styles.ingredientName}>
-          {ingredient.icon || "🥗"} {ingredient.name}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <input 
+            type="checkbox" 
+            checked={!isExcluded}
+            onChange={() => onToggleExclude(ingredient.id, ingredient.defaultGrams)}
+            style={{ width: 18, height: 18, accentColor: '#F97316', cursor: 'pointer' }}
+          />
+          <span style={styles.ingredientName}>
+            {ingredient.icon || "🥗"} {ingredient.name}
+          </span>
+        </div>
         <div style={styles.gramsDisplay}>
-          <span style={styles.gramsValue}>{grams}</span>
+          <span style={styles.gramsValue}>{isExcluded ? 0 : grams}</span>
           <span style={styles.gramsUnit}>g</span>
         </div>
       </div>
@@ -63,6 +71,7 @@ function IngredientSlider({ ingredient, grams, onChange }) {
           style={{
             ...styles.progressBarFill,
             width: `${percentage}%`,
+            backgroundColor: isExcluded ? '#4A4A5A' : '#F97316'
           }}
         />
       </div>
@@ -73,9 +82,10 @@ function IngredientSlider({ ingredient, grams, onChange }) {
         min={ingredient.minGrams}
         max={ingredient.maxGrams}
         step={5}
-        value={grams}
-        onChange={(e) => onChange(ingredient.id, Number(e.target.value))}
-        style={styles.sliderInput}
+        value={isExcluded ? ingredient.minGrams : grams}
+        onChange={(e) => !isExcluded && onChange(ingredient.id, Number(e.target.value))}
+        style={{ ...styles.sliderInput, cursor: isExcluded ? 'not-allowed' : 'pointer' }}
+        disabled={isExcluded}
         aria-label={`Gramos de ${ingredient.name}`}
       />
 
@@ -86,20 +96,22 @@ function IngredientSlider({ ingredient, grams, onChange }) {
       </div>
 
       {/* Info nutricional del ingrediente */}
-      <div style={styles.ingNutrition}>
-        <span style={styles.ingNutritionItem}>
-          🥩 {Math.round(grams * ingredient.proteinPerGram * 10) / 10}g prot
-        </span>
-        <span style={styles.ingNutritionItem}>
-          🌾 {Math.round(grams * ingredient.carbPerGram * 10) / 10}g carb
-        </span>
-        <span style={styles.ingNutritionItem}>
-          🫒 {Math.round(grams * ingredient.fatPerGram * 10) / 10}g grasas
-        </span>
-        <span style={styles.ingNutritionItem}>
-          🔥 {Math.round(grams * ingredient.kcalPerGram)} kcal
-        </span>
-      </div>
+      {!isExcluded && (
+        <div style={styles.ingNutrition}>
+          <span style={styles.ingNutritionItem}>
+            🥩 {Math.round(grams * ingredient.proteinPerGram * 10) / 10}g prot
+          </span>
+          <span style={styles.ingNutritionItem}>
+            🌾 {Math.round(grams * ingredient.carbPerGram * 10) / 10}g carb
+          </span>
+          <span style={styles.ingNutritionItem}>
+            🫒 {Math.round(grams * ingredient.fatPerGram * 10) / 10}g grasas
+          </span>
+          <span style={styles.ingNutritionItem}>
+            🔥 {Math.round(grams * ingredient.kcalPerGram)} kcal
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -163,10 +175,36 @@ export default function CustomDishScreen() {
 
   // gramsMap: { [ingredientId]: number }
   const [gramsMap, setGramsMap] = useState({});
+  const [excludedIngredients, setExcludedIngredients] = useState([]);
+  const [selectedOptions, setSelectedOptions] = useState([]);
   const [isInitialized, setIsInitialized] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+  const handleToggleExclude = useCallback((ingredientId, defGrams) => {
+    setExcludedIngredients((prev) => {
+      const isExcluded = prev.includes(ingredientId);
+      if (isExcluded) {
+        setGramsMap((g) => ({ ...g, [ingredientId]: defGrams }));
+        return prev.filter((id) => id !== ingredientId);
+      } else {
+        setGramsMap((g) => ({ ...g, [ingredientId]: 0 }));
+        return [...prev, ingredientId];
+      }
+    });
+  }, []);
+
+  const handleOptionToggle = (option) => {
+    setSelectedOptions((prev) => {
+      const exists = prev.some((o) => o.name === option.name);
+      if (exists) {
+        return prev.filter((o) => o.name !== option.name);
+      } else {
+        return [...prev, option];
+      }
+    });
+  };
 
   // Macro adjustments states
   const [showMacroPanel, setShowMacroPanel] = useState(false);
@@ -225,15 +263,95 @@ export default function CustomDishScreen() {
       maxGrams: limits.max !== undefined ? limits.max : ing.maxGrams,
       defaultGrams: limits.default !== undefined ? limits.default : ing.defaultGrams
     };
+    const isExcluded = excludedIngredients.includes(ing.id);
     return {
       ...effectiveIng,
-      grams: gramsMap[ing.id] ?? effectiveIng.defaultGrams,
+      isExcluded,
+      grams: isExcluded ? 0 : (gramsMap[ing.id] ?? effectiveIng.defaultGrams),
     };
   });
 
+  const optionsCost = selectedOptions.reduce((sum, opt) => sum + (opt.price || 0), 0);
+
   // Real-time pricing engine
   const { finalPrice, macros, breakdown, ingredientCost, productionCost } =
-    usePricingCalculator(selectedIngredients, recipe?.fixedCost ?? 0);
+    usePricingCalculator(selectedIngredients, (recipe?.fixedCost ?? 0) + optionsCost);
+
+  // Real-time diet validation warning calculator
+  const dietTargetKcal = nutritionalPlan ? (nutritionalPlan.periodType === "day" ? nutritionalPlan.kcalLimit / 3 : nutritionalPlan.kcalLimit) : 2000 / 3;
+  const dietTargetProtein = nutritionalPlan ? (nutritionalPlan.periodType === "day" ? nutritionalPlan.proteinLimit / 3 : nutritionalPlan.proteinLimit) : 130 / 3;
+  const dietTargetCarbs = nutritionalPlan ? (nutritionalPlan.periodType === "day" ? nutritionalPlan.carbLimit / 3 : nutritionalPlan.carbLimit) : 250 / 3;
+  const dietTargetFat = nutritionalPlan ? (nutritionalPlan.periodType === "day" ? nutritionalPlan.fatLimit / 3 : nutritionalPlan.fatLimit) : 65 / 3;
+
+  const warnings = [];
+  const statusLabel = nutritionalPlan ? "🩺 Plan de tu Nutriólogo" : "⚖️ Dieta Estándar (Recomendada)";
+
+  // Protein
+  if (macros.protein < dietTargetProtein * 0.9) {
+    warnings.push({
+      type: "warning",
+      text: `Te faltan ${(dietTargetProtein - macros.protein).toFixed(1)}g de Proteína para alcanzar tu meta de esta comida (${dietTargetProtein.toFixed(0)}g).`
+    });
+  } else if (macros.protein > dietTargetProtein * 1.1) {
+    warnings.push({
+      type: "danger",
+      text: `Te estás excediendo por ${(macros.protein - dietTargetProtein).toFixed(1)}g de Proteína en esta comida (${dietTargetProtein.toFixed(0)}g meta).`
+    });
+  } else {
+    warnings.push({
+      type: "success",
+      text: `Proteína ideal: ¡Estás dentro del rango objetivo (${macros.protein}g / ${dietTargetProtein.toFixed(0)}g)!`
+    });
+  }
+
+  // Carbs
+  if (macros.carbs < dietTargetCarbs * 0.9) {
+    warnings.push({
+      type: "warning",
+      text: `Te faltan ${(dietTargetCarbs - macros.carbs).toFixed(1)}g de Carbohidratos para tu meta (${dietTargetCarbs.toFixed(0)}g meta).`
+    });
+  } else if (macros.carbs > dietTargetCarbs * 1.1) {
+    warnings.push({
+      type: "danger",
+      text: `Te excedes por ${(macros.carbs - dietTargetCarbs).toFixed(1)}g de Carbohidratos (${dietTargetCarbs.toFixed(0)}g meta).`
+    });
+  } else {
+    warnings.push({
+      type: "success",
+      text: `Carbohidratos ideales: ¡Excelente control (${macros.carbs}g / ${dietTargetCarbs.toFixed(0)}g)!`
+    });
+  }
+
+  // Fat
+  if (macros.fats < dietTargetFat * 0.9) {
+    warnings.push({
+      type: "warning",
+      text: `Te faltan ${(dietTargetFat - macros.fats).toFixed(1)}g de Grasas saludables para tu meta (${dietTargetFat.toFixed(0)}g meta).`
+    });
+  } else if (macros.fats > dietTargetFat * 1.1) {
+    warnings.push({
+      type: "danger",
+      text: `Te excedes por ${(macros.fats - dietTargetFat).toFixed(1)}g de Grasas en esta comida (${dietTargetFat.toFixed(0)}g meta).`
+    });
+  } else {
+    warnings.push({
+      type: "success",
+      text: `Grasas ideales: Aporte adecuado de lípidos (${macros.fats}g / ${dietTargetFat.toFixed(0)}g).`
+    });
+  }
+
+  // Kcal
+  if (macros.kcal < dietTargetKcal * 0.9) {
+    warnings.push({
+      type: "warning",
+      text: `Esta comida aporta pocas calorías: ${macros.kcal} kcal (meta: ${dietTargetKcal.toFixed(0)} kcal).`
+    });
+  } else if (macros.kcal > dietTargetKcal * 1.1) {
+    warnings.push({
+      type: "danger",
+      text: `Esta comida excede tus requerimientos calóricos: ${macros.kcal} kcal (meta: ${dietTargetKcal.toFixed(0)} kcal).`
+    });
+  }
 
   const handleSliderChange = useCallback((ingredientId, newGrams) => {
     setGramsMap((prev) => ({ ...prev, [ingredientId]: newGrams }));
@@ -319,7 +437,8 @@ export default function CustomDishScreen() {
       macros: { ...macros },
       breakdown: [...breakdown],
       ingredientCost,
-      productionCost
+      productionCost,
+      selectedOptions: selectedOptions
     };
 
     try {
@@ -462,6 +581,26 @@ export default function CustomDishScreen() {
               unit="kcal"
               color="#34D399"
             />
+          </div>
+
+          {/* ── ALINEACIÓN CON LA DIETA (REAL-TIME ALERTS) ── */}
+          <div style={styles.dietAlertCard}>
+            <div style={styles.dietAlertHeader}>
+              <span>{statusLabel}</span>
+              <span style={styles.dietPill}>Alineación de Macros</span>
+            </div>
+            <div style={styles.dietAlertContent}>
+              {warnings.map((w, idx) => {
+                const color = w.type === "success" ? "#34D399" : w.type === "warning" ? "#F59E0B" : "#EF4444";
+                const icon = w.type === "success" ? "✅" : w.type === "warning" ? "⚠️" : "🚨";
+                return (
+                  <div key={idx} style={{ ...styles.warningItem, borderLeft: `4px solid ${color}`, display: 'flex', alignItems: 'center' }}>
+                    <span style={{ marginRight: 8 }}>{icon}</span>
+                    <span style={{ fontSize: 13, color: '#E2E8F0', lineHeight: '1.4' }}>{w.text}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* ── ADJUST PORTIONS BY TARGET MACROS (NUTRITIONAL PLAN ALIGNED) ── */}
@@ -621,9 +760,64 @@ export default function CustomDishScreen() {
                 ingredient={effectiveIngredient}
                 grams={effectiveIngredient.grams}
                 onChange={handleSliderChange}
+                isExcluded={effectiveIngredient.isExcluded}
+                onToggleExclude={handleToggleExclude}
               />
             ))}
           </div>
+
+          {/* ── OPCIONES ADICIONALES (EXTRAS / SUSTITUTOS) ── */}
+          {recipe.options && recipe.options.length > 0 && (
+            <div style={styles.optionsSection}>
+              <h2 style={styles.sectionTitle}>Adicionales / Extras</h2>
+              <p style={styles.sectionSubtitle}>
+                Selecciona extras o sustitutos para personalizar aún más tu platillo.
+              </p>
+              <div style={styles.optionsList}>
+                {recipe.options.map((opt, idx) => {
+                  const isChecked = selectedOptions.some(o => o.name === opt.name);
+                  return (
+                    <div 
+                      key={idx} 
+                      onClick={() => handleOptionToggle(opt)}
+                      style={{
+                        ...styles.optionCard,
+                        borderColor: isChecked ? '#F97316' : '#2D2D37',
+                        backgroundColor: isChecked ? 'rgba(249, 115, 22, 0.05)' : '#131316',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '16px',
+                        borderRadius: '12px',
+                        border: '1px solid',
+                        marginBottom: '10px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <input 
+                          type="checkbox" 
+                          checked={isChecked}
+                          onChange={() => {}} // handled by card click
+                          style={{ width: 18, height: 18, accentColor: '#F97316' }}
+                        />
+                        <div>
+                          <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#F8FAFC' }}>{opt.name}</p>
+                          <span style={{ fontSize: 11, color: opt.type === 'substitute' ? '#A78BFA' : '#34D399' }}>
+                            {opt.type === 'substitute' ? 'Sustituto' : 'Extra'}
+                          </span>
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: '#F97316' }}>
+                        +${opt.price} MXN
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* ── RESUMEN DE COSTOS (transparencia) ── */}
           <div style={styles.costBreakdown}>
@@ -1325,5 +1519,52 @@ const styles = {
     fontWeight: 700,
     color: "#FFF",
     textAlign: "center",
+  },
+  dietAlertCard: {
+    backgroundColor: "#131316",
+    border: "1px solid #202024",
+    borderRadius: "16px",
+    padding: "16px",
+    margin: "0 20px 20px 20px",
+  },
+  dietAlertHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "12px",
+    fontSize: "12px",
+    fontWeight: 700,
+    color: "#94A3B8",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+  },
+  dietPill: {
+    backgroundColor: "rgba(249, 115, 22, 0.1)",
+    color: "#F97316",
+    padding: "3px 8px",
+    borderRadius: "20px",
+    fontSize: "10px",
+  },
+  dietAlertContent: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+  },
+  warningItem: {
+    display: "flex",
+    alignItems: "center",
+    padding: "8px 12px",
+    backgroundColor: "rgba(255,255,255,0.02)",
+    borderRadius: "8px",
+    borderLeft: "4px solid",
+  },
+  optionsSection: {
+    margin: "0 20px 24px 20px",
+  },
+  optionsList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+    marginTop: "12px",
   }
 };

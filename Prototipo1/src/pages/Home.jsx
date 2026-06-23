@@ -59,7 +59,12 @@ export default function Home() {
     const matchesCategory = activeCategory === "Todos" || recipe.category === activeCategory;
     const matchesSearch = recipe.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
                           recipe.description.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
+    
+    // Check if the restaurant of this recipe is available/active
+    const rest = restaurants?.find(r => r.id === recipe.restaurantId);
+    const isRestAvailable = rest ? rest.isAvailable !== false : true;
+
+    return matchesCategory && matchesSearch && isRestAvailable;
   });
 
   return (
@@ -122,18 +127,39 @@ export default function Home() {
 
           {/* Horizontal Categories */}
           <div style={styles.categoriesContainer}>
-            {["Todos", "Bowl", "Wrap"].map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setActiveCategory(cat)}
-                style={{
-                  ...styles.categoryPill,
-                  ...(activeCategory === cat ? styles.activeCategoryPill : {})
-                }}
-              >
-                {cat === "Todos" ? "🍽️ Todos" : cat === "Bowl" ? "🥣 Bowls" : "🌯 Wraps"}
-              </button>
-            ))}
+            {["Todos", ...new Set((recipes || []).map(r => r.category).filter(Boolean))].map((cat) => {
+              const categoryEmojis = {
+                "Todos": "🍽️",
+                "Bowl": "🥣",
+                "Wrap": "🌯",
+                "Pollo": "🍗",
+                "Salmón": "🐟",
+                "Avena": "🌾",
+                "Tofu": "🍢",
+                "Ensalada": "🥗",
+                "Postre": "🍰",
+                "Sopa": "🍜",
+                "Bebida": "🥤",
+                "Taco": "🌮",
+                "Sushi": "🍣",
+                "Pizza": "🍕",
+                "Hamburguesa": "🍔",
+                "Pasta": "🍝"
+              };
+              const emoji = categoryEmojis[cat] || "🍲";
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(cat)}
+                  style={{
+                    ...styles.categoryPill,
+                    ...(activeCategory === cat ? styles.activeCategoryPill : {})
+                  }}
+                >
+                  {emoji} {cat}
+                </button>
+              );
+            })}
           </div>
 
           {/* Recomendaciones del Nutriólogo */}

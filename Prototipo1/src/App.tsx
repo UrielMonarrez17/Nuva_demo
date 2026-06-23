@@ -65,10 +65,25 @@ const MainApp: React.FC = () => {
   if (loading) {
     return (
       <div style={styles.loadingContainer}>
-        <div style={styles.spinnerOuter}>
-          <div style={styles.spinnerInner} />
+        <style>
+          {`
+            @keyframes tailwindPulse {
+              0%, 100% { opacity: 1; }
+              50% { opacity: .5; }
+            }
+            @media (min-width: 768px) {
+              .splash-logo { width: 300px !important; height: 300px !important; border-radius: 48px !important; }
+              .splash-title { font-size: 80px !important; }
+              .splash-spinner { width: 80px !important; height: 80px !important; margin-top: 48px !important; }
+              .splash-gap { gap: 48px !important; }
+            }
+          `}
+        </style>
+        <div style={styles.logoBox} className="splash-gap">
+          <img src="/logo.png" alt="NOMI Logo" style={styles.logoImg} className="splash-logo" />
+          <h1 style={styles.logoTitle} className="splash-title">NOMI</h1>
+          <IonSpinner color="warning" name="crescent" style={styles.spinner} className="splash-spinner" />
         </div>
-        <p style={styles.loadingText}>Iniciando nomi...</p>
       </div>
     );
   }
@@ -138,31 +153,36 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     height: '100vh',
-    backgroundColor: '#0B0B0C',
-    color: '#94A3B8',
+    backgroundColor: '#FFF7ED',
+    color: '#F97316',
+    gap: 24,
+  },
+  logoBox: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
     gap: 16,
   },
-  spinnerOuter: {
-    width: 44,
-    height: 44,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+  logoImg: {
+    width: '120px',
+    height: '120px',
+    objectFit: 'contain' as const,
+    borderRadius: '24px',
+    boxShadow: '0 10px 30px rgba(249, 115, 22, 0.15)',
+    animation: 'tailwindPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
   },
-  spinnerInner: {
-    width: 36,
-    height: 36,
-    border: '3px solid #1C1C24',
-    borderTop: '3px solid #F97316',
-    borderRadius: '50%',
-    animation: 'spin 0.8s linear infinite',
-  },
-  loadingText: {
-    fontSize: 14,
-    fontWeight: 600,
+  logoTitle: {
+    fontSize: '40px',
+    fontWeight: 900,
     letterSpacing: '0.05em',
     color: '#F97316',
-    textTransform: 'uppercase' as const,
+    margin: 0,
+    fontFamily: "'Inter', 'Roboto', sans-serif",
+  },
+  spinner: {
+    marginTop: '24px',
+    width: '36px',
+    height: '36px',
   }
 };
 

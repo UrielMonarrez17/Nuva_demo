@@ -4,9 +4,10 @@ import React, { useState } from "react";
 import { useApp } from "../context/AppContext";
 import { useHistory } from "react-router-dom";
 import { IonPage, IonContent, IonSpinner } from "@ionic/react";
+import MapPicker from "../components/MapPicker";
 
 export default function LoginScreen() {
-  const { login, loginWithGoogle, registerClient, registerNutriologist } = useApp();
+  const { login, loginWithGoogle, registerClient, registerNutriologist, registerRestaurantPending } = useApp();
   const history = useHistory();
 
   const [mode, setMode] = useState("login"); // "login" | "signup"
@@ -18,6 +19,12 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [license, setLicense] = useState("");
   const [phone, setPhone] = useState("");
+  
+  // Restaurant form fields
+  const [restaurantName, setRestaurantName] = useState("");
+  const [restaurantAddress, setRestaurantAddress] = useState("");
+  const [restaurantLat, setRestaurantLat] = useState("19.4326");
+  const [restaurantLng, setRestaurantLng] = useState("-99.1332");
   
   // Status states
   const [errorMsg, setErrorMsg] = useState("");
@@ -45,21 +52,31 @@ export default function LoginScreen() {
       }
       if (accountType === "client") {
         res = await registerClient(name, email, password);
-      } else {
+      } else if (accountType === "nutriologist") {
         if (!license || !phone) {
           setErrorMsg("Completa tu cédula profesional y teléfono de contacto.");
           setLoading(false);
           return;
         }
         res = await registerNutriologist(name, email, password, license, phone);
+      } else if (accountType === "restaurant") {
+        if (!restaurantName || !restaurantAddress) {
+          setErrorMsg("Completa el nombre y la dirección física de tu restaurante.");
+          setLoading(false);
+          return;
+        }
+        res = await registerRestaurantPending(name, email, password, restaurantName, restaurantAddress, restaurantLat, restaurantLng);
       }
     }
 
     setLoading(false);
 
     if (res.success) {
-      // Success feedback
-      alert(mode === "login" ? "¡Sesión iniciada con éxito!" : "¡Registro completado exitosamente!");
+      if (mode === "signup" && accountType === "restaurant") {
+        alert("¡Tu solicitud de registro ha sido enviada! Nuestro equipo administrativo la revisará y verificará a la brevedad.");
+      } else {
+        alert(mode === "login" ? "¡Sesión iniciada con éxito!" : "¡Registro completado exitosamente!");
+      }
       history.push("/home");
     } else {
       setErrorMsg(res.error || "Ocurrió un error. Intenta de nuevo.");
@@ -114,14 +131,15 @@ export default function LoginScreen() {
                 <>
                   <div style={styles.inputGroup}>
                     <label style={styles.label}>Tipo de Perfil</label>
-                    <select
-                      value={accountType}
-                      onChange={(e) => setAccountType(e.target.value)}
-                      style={styles.select}
-                    >
-                      <option value="client">Cliente / Paciente</option>
-                      <option value="nutriologist">Nutriólogo Clínico</option>
-                    </select>
+                      <select
+                        value={accountType}
+                        onChange={(e) => setAccountType(e.target.value)}
+                        style={styles.select}
+                      >
+                        <option value="client">Cliente / Paciente</option>
+                        <option value="nutriologist">Nutriólogo Clínico</option>
+                        <option value="restaurant">Socio Restaurante / Cocina</option>
+                      </select>
                   </div>
 
                   <div style={styles.inputGroup}>
@@ -183,6 +201,44 @@ export default function LoginScreen() {
                       placeholder="10 dígitos"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
+                      style={styles.input}
+                      required
+                    />
+                  </div>
+                </>
+              )}
+              {mode === "signup" && accountType === "restaurant" && (
+                <>
+                  <div style={styles.inputGroup}>
+                    <label style={styles.label}>Nombre de la Cocina / Restaurante</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Katsu Healthy Bowls"
+                      value={restaurantName}
+                      onChange={(e) => setRestaurantName(e.target.value)}
+                      style={styles.input}
+                      required
+                    />
+                  </div>
+
+                  <div style={styles.inputGroup}>
+                    <label style={styles.label}>Ubicación en Mapa (Tiempo Real)</label>
+                    <MapPicker
+                      onConfirm={(loc) => {
+                        setRestaurantLat(loc.lat.toString());
+                        setRestaurantLng(loc.lng.toString());
+                        setRestaurantAddress(loc.address);
+                      }}
+                    />
+                  </div>
+
+                  <div style={styles.inputGroup}>
+                    <label style={styles.label}>Dirección Física (Confirmada en mapa)</label>
+                    <input
+                      type="text"
+                      placeholder="Confirma la dirección aquí"
+                      value={restaurantAddress}
+                      onChange={(e) => setRestaurantAddress(e.target.value)}
                       style={styles.input}
                       required
                     />

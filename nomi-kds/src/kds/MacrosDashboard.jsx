@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from "../firebase/firebaseconfig";
-import { collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc } from "firebase/firestore";
+import { collection, onSnapshot, doc, setDoc, deleteDoc } from "firebase/firestore";
 
 export default function MacrosDashboard() {
   const [ingredients, setIngredients] = useState([]);
@@ -17,9 +17,21 @@ export default function MacrosDashboard() {
   const [formProteinPerGram, setFormProteinPerGram] = useState("0.1");
   const [formCarbPerGram, setFormCarbPerGram] = useState("0.1");
   const [formFatPerGram, setFormFatPerGram] = useState("0.02");
+  
+  // Purchase inputs for dynamic cost calculation
+  const [formPurchaseCost, setFormPurchaseCost] = useState("70");
+  const [formPurchaseQuantity, setFormPurchaseQuantity] = useState("1");
+  const [formPurchaseUnit, setFormPurchaseUnit] = useState("kg"); // kg, g, unit
+
+  // Visual unit fields
+  const [formUnitName, setFormUnitName] = useState(""); // e.g. "pieza", "cucharada"
+  const [formAverageWeightPerUnit, setFormAverageWeightPerUnit] = useState(""); // e.g. 160
+
+  // Limits
   const [formMinGrams, setFormMinGrams] = useState("50");
   const [formMaxGrams, setFormMaxGrams] = useState("250");
-  const [formDefaultGrams, setFormDefaultGrams] = useState("100");
+  const [formDefaultVal, setFormDefaultVal] = useState("100");
+  const [formDefaultUnitType, setFormDefaultUnitType] = useState("g"); // "g" or "unit"
   const [formUnit, setFormUnit] = useState("g");
 
   // Load ingredients from Firestore
@@ -49,9 +61,15 @@ export default function MacrosDashboard() {
     setFormProteinPerGram("0.1");
     setFormCarbPerGram("0.1");
     setFormFatPerGram("0.02");
+    setFormPurchaseCost("70");
+    setFormPurchaseQuantity("1");
+    setFormPurchaseUnit("kg");
+    setFormUnitName("");
+    setFormAverageWeightPerUnit("");
     setFormMinGrams("50");
     setFormMaxGrams("250");
-    setFormDefaultGrams("100");
+    setFormDefaultVal("100");
+    setFormDefaultUnitType("g");
     setFormUnit("g");
     setIsModalOpen(true);
   };
@@ -67,8 +85,26 @@ export default function MacrosDashboard() {
     setFormFatPerGram(ing.fatPerGram?.toString() || "0");
     setFormMinGrams(ing.minGrams?.toString() || "0");
     setFormMaxGrams(ing.maxGrams?.toString() || "0");
-    setFormDefaultGrams(ing.defaultGrams?.toString() || "0");
     setFormUnit(ing.unit || "g");
+    
+    // Set visual units
+    setFormUnitName(ing.unitName || "");
+    setFormAverageWeightPerUnit(ing.averageWeightPerUnit?.toString() || "");
+
+    // Set purchase details
+    setFormPurchaseCost(ing.purchaseCost?.toString() || (ing.costPerGram * (ing.averageWeightPerUnit || 1000)).toFixed(2));
+    setFormPurchaseQuantity(ing.purchaseQuantity?.toString() || "1");
+    setFormPurchaseUnit(ing.purchaseUnit || (ing.averageWeightPerUnit ? "unit" : "kg"));
+
+    // Set portion default
+    if (ing.averageWeightPerUnit && ing.unitName) {
+      setFormDefaultUnitType("unit");
+      setFormDefaultVal((ing.defaultGrams / ing.averageWeightPerUnit).toString());
+    } else {
+      setFormDefaultUnitType("g");
+      setFormDefaultVal(ing.defaultGrams?.toString() || "0");
+    }
+
     setIsModalOpen(true);
   };
 
@@ -77,6 +113,28 @@ export default function MacrosDashboard() {
       setIsModalOpen(false);
     }
   };
+
+  // Helper calculations
+  const avgWeight = parseFloat(formAverageWeightPerUnit) || 0;
+  const purchaseCostNum = parseFloat(formPurchaseCost) || 0;
+  const purchaseQtyNum = parseFloat(formPurchaseQuantity) || 1;
+  const defaultValNum = parseFloat(formDefaultVal) || 0;
+
+  // Real-time cost per gram calculation preview
+  let calculatedCostPerGram = 0;
+  if (formPurchaseUnit === "kg") {
+    calculatedCostPerGram = purchaseCostNum / (purchaseQtyNum * 1000);
+  } else if (formPurchaseUnit === "g") {
+    calculatedCostPerGram = purchaseCostNum / purchaseQtyNum;
+  } else if (formPurchaseUnit === "unit" && avgWeight > 0) {
+    calculatedCostPerGram = purchaseCostNum / (purchaseQtyNum * avgWeight);
+  }
+
+  // Real-time default portion grams preview
+  let calculatedDefaultGrams = Math.round(defaultValNum);
+  if (formDefaultUnitType === "unit" && avgWeight > 0) {
+    calculatedDefaultGrams = Math.round(defaultValNum * avgWeight);
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -88,45 +146,43 @@ export default function MacrosDashboard() {
       return;
     }
 
+    // Set visual measure default: 1 porción = defaultGrams (calculatedDefaultGrams)
+    let finalUnitName = formUnitName.trim();
+    let finalAvgWeight = avgWeight;
+    if (!finalUnitName) {
+      finalUnitName = "porción";
+      finalAvgWeight = calculatedDefaultGrams;
+    }
+
     const ingData = {
       name: formName.trim(),
-      costPerGram: parseFloat(formCostPerGram) || 0,
+      costPerGram: calculatedCostPerGram,
       kcalPerGram: parseFloat(formKcalPerGram) || 0,
       proteinPerGram: parseFloat(formProteinPerGram) || 0,
       carbPerGram: parseFloat(formCarbPerGram) || 0,
       fatPerGram: parseFloat(formFatPerGram) || 0,
       minGrams: parseInt(formMinGrams) || 0,
       maxGrams: parseInt(formMaxGrams) || 0,
-      defaultGrams: parseInt(formDefaultGrams) || 0,
-      unit: formUnit.trim() || "g"
+      defaultGrams: calculatedDefaultGrams,
+      unit: formUnit.trim() || "g",
+      unitName: finalUnitName,
+      averageWeightPerUnit: finalAvgWeight,
+      purchaseCost: purchaseCostNum,
+      purchaseQuantity: purchaseQtyNum,
+      purchaseUnit: formPurchaseUnit
     };
 
     try {
-      if (isEditing) {
-        // Update
-        await updateDoc(doc(db, "ingredients", editingId), ingData);
-      } else {
-        // Create (generate a clean ID starting with ing_ if we want, or let Firestore generate it)
-        // Let's generate a lowercase ID without special characters
-        const safeId = "ing_" + formName.toLowerCase().replace(/[^a-z0-9]/g, "_");
-        await updateDoc(doc(db, "ingredients", safeId), ingData); // setDoc style via updateDoc/setDoc. Using safer custom setDoc is better or just setting it with a custom ID
-      }
-      closeModal();
+      const safeId = editingId || "ing_" + formName.toLowerCase().replace(/[^a-z0-9]/g, "_");
+      
+      // Save in BOTH collections to keep them unified
+      await setDoc(doc(db, "ingredients", safeId), ingData, { merge: true });
+      await setDoc(doc(db, "master_ingredients", safeId), ingData, { merge: true });
+      
+      setIsModalOpen(false);
     } catch (err) {
       console.error("Error saving ingredient:", err);
-      // Fallback in case document doesn't exist for update when creating
-      try {
-        const safeId = "ing_" + formName.toLowerCase().replace(/[^a-z0-9]/g, "_");
-        const docRef = doc(db, "ingredients", safeId);
-        // Note: we can write it using setDoc if we want, or simple addDoc. Let's do addDoc/setDoc with custom doc ID
-        await updateDoc(docRef, ingData).catch(async () => {
-          // If update fails because it doesn't exist, we set it!
-          // We can use a trick or write it cleanly. Wait, setDoc isn't imported, let's use the document reference if needed. Let's import setDoc!
-        });
-      } catch (innerErr) {
-        console.error("Error on setDoc fallback:", innerErr);
-        alert("Error al guardar ingrediente.");
-      }
+      alert("Error al guardar ingrediente: " + err.message);
     }
   };
 
@@ -134,6 +190,7 @@ export default function MacrosDashboard() {
     if (window.confirm("¿Estás seguro de que deseas eliminar este ingrediente? Se quitará de las recetas que lo usen.")) {
       try {
         await deleteDoc(doc(db, "ingredients", ingId));
+        await deleteDoc(doc(db, "master_ingredients", ingId));
       } catch (err) {
         console.error("Error deleting ingredient:", err);
         alert("Hubo un error al eliminar el ingrediente.");
@@ -145,7 +202,7 @@ export default function MacrosDashboard() {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <h1 style={styles.title}>Ingredientes y Macros</h1>
+          <h1 style={styles.title}>Ingredientes y Macros (Admin)</h1>
           <p style={styles.subtitle}>Configura el costo, límites y aportes nutricionales de los ingredientes</p>
         </div>
         <button onClick={openAddModal} style={styles.primaryButton}>
@@ -166,6 +223,7 @@ export default function MacrosDashboard() {
             <thead>
               <tr>
                 <th style={styles.th}>Ingrediente</th>
+                <th style={styles.th}>Medida Visual</th>
                 <th style={styles.th}>Costo /g</th>
                 <th style={styles.th}>Macros (por gramo)</th>
                 <th style={styles.th}>Límites (g)</th>
@@ -180,7 +238,16 @@ export default function MacrosDashboard() {
                     <div style={{ fontSize: 11, color: "#6B6B6B" }}>ID: {ing.id}</div>
                   </td>
                   <td style={styles.td}>
-                    <span style={styles.costBadge}>${ing.costPerGram?.toFixed(3)}</span>
+                    {ing.unitName ? (
+                      <span style={{ color: "#FFF", fontSize: 13, backgroundColor: 'rgba(249, 115, 22, 0.15)', padding: '4px 8px', borderRadius: 6 }}>
+                        1 {ing.unitName} = {ing.averageWeightPerUnit}g
+                      </span>
+                    ) : (
+                      <span style={{ color: "#6B6B6B", fontSize: 12 }}>Gramos únicamente</span>
+                    )}
+                  </td>
+                  <td style={styles.td}>
+                    <span style={styles.costBadge}>${ing.costPerGram?.toFixed(4)}</span>
                   </td>
                   <td style={styles.td}>
                     <div style={styles.macrosRow}>
@@ -217,92 +284,162 @@ export default function MacrosDashboard() {
         <div style={styles.modalOverlay}>
           <div style={styles.modalContent}>
             <div style={styles.modalHeader}>
-              <h2 style={styles.modalTitle}>{isEditing ? 'Editar Ingrediente' : 'Nuevo Ingrediente'}</h2>
+              <div>
+                <h2 style={styles.modalTitle}>{isEditing ? 'Editar Ingrediente' : 'Nuevo Ingrediente'}</h2>
+                {isEditing && <div style={{ fontSize: 14, color: '#34D399', fontWeight: 600, marginTop: 4 }}>Ingrediente: {formName}</div>}
+              </div>
               <button onClick={closeModal} style={styles.closeBtn}>✕</button>
             </div>
 
             <form onSubmit={handleSubmit} style={styles.form}>
-              <div style={styles.row}>
-                <div style={{ ...styles.formGroup, flex: 2 }}>
-                  <label style={styles.label}>Nombre del Ingrediente</label>
-                  <input 
-                    type="text" 
-                    style={styles.input} 
-                    value={formName} 
-                    onChange={(e) => setFormName(e.target.value)} 
-                    placeholder="Ej. Salmón fresco"
-                    required
-                  />
-                </div>
-                <div style={{ ...styles.formGroup, flex: 1 }}>
-                  <label style={styles.label}>Unidad</label>
-                  <input 
-                    type="text" 
-                    style={styles.input} 
-                    value={formUnit} 
-                    onChange={(e) => setFormUnit(e.target.value)} 
-                    placeholder="g"
-                  />
-                </div>
-              </div>
+              {!isEditing && (
+                <>
+                  <div style={styles.row}>
+                    <div style={{ ...styles.formGroup, flex: 2 }}>
+                      <label style={styles.label}>Nombre del Ingrediente</label>
+                      <input 
+                        type="text" 
+                        style={styles.input} 
+                        value={formName} 
+                        onChange={(e) => setFormName(e.target.value)} 
+                        placeholder="Ej. Aguacate Hass"
+                        required
+                      />
+                    </div>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.label}>Unidad Base</label>
+                      <input 
+                        type="text" 
+                        style={styles.input} 
+                        value={formUnit} 
+                        onChange={(e) => setFormUnit(e.target.value)} 
+                        placeholder="g"
+                      />
+                    </div>
+                  </div>
 
+                  {/* Medida Visual / Piezas */}
+                  <div style={styles.row}>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.label}>Nombre medida visual (opcional)</label>
+                      <input 
+                        type="text" 
+                        style={styles.input} 
+                        value={formUnitName} 
+                        onChange={(e) => setFormUnitName(e.target.value)} 
+                        placeholder="Ej. pieza, rebanada"
+                      />
+                    </div>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.label}>Peso promedio en gramos (g)</label>
+                      <input 
+                        type="number" 
+                        style={styles.input} 
+                        value={formAverageWeightPerUnit} 
+                        onChange={(e) => setFormAverageWeightPerUnit(e.target.value)} 
+                        placeholder="Ej. 160"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Costo de compra (Calculado a costPerGram) */}
+              <h4 style={styles.sectionHeader}>Configuración de Costo (Compra)</h4>
               <div style={styles.row}>
                 <div style={{ ...styles.formGroup, flex: 1 }}>
-                  <label style={styles.label}>Costo por Gramo ($)</label>
-                  <input 
-                    type="number" 
-                    step="0.0001"
-                    style={styles.input} 
-                    value={formCostPerGram} 
-                    onChange={(e) => setFormCostPerGram(e.target.value)} 
-                  />
-                </div>
-                <div style={{ ...styles.formGroup, flex: 1 }}>
-                  <label style={styles.label}>Kcal por Gramo</label>
+                  <label style={styles.label}>Costo Total ($)</label>
                   <input 
                     type="number" 
                     step="0.01"
                     style={styles.input} 
-                    value={formKcalPerGram} 
-                    onChange={(e) => setFormKcalPerGram(e.target.value)} 
+                    value={formPurchaseCost} 
+                    onChange={(e) => setFormPurchaseCost(e.target.value)} 
+                    required
                   />
+                </div>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Cantidad</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    style={styles.input} 
+                    value={formPurchaseQuantity} 
+                    onChange={(e) => setFormPurchaseQuantity(e.target.value)} 
+                    required
+                  />
+                </div>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Unidad de Compra</label>
+                  <select
+                    style={styles.select}
+                    value={formPurchaseUnit}
+                    onChange={(e) => setFormPurchaseUnit(e.target.value)}
+                  >
+                    <option value="kg">kg (Kilogramos)</option>
+                    <option value="g">g (Gramos)</option>
+                    {formUnitName && <option value="unit">{formUnitName}(s)</option>}
+                  </select>
                 </div>
               </div>
 
-              <h4 style={styles.sectionHeader}>Aportes Macronutricionales (por Gramo)</h4>
-              <div style={styles.row}>
-                <div style={{ ...styles.formGroup, flex: 1 }}>
-                  <label style={styles.label}>Proteína (g)</label>
-                  <input 
-                    type="number" 
-                    step="0.001"
-                    style={styles.input} 
-                    value={formProteinPerGram} 
-                    onChange={(e) => setFormProteinPerGram(e.target.value)} 
-                  />
-                </div>
-                <div style={{ ...styles.formGroup, flex: 1 }}>
-                  <label style={styles.label}>Carbohidratos (g)</label>
-                  <input 
-                    type="number" 
-                    step="0.001"
-                    style={styles.input} 
-                    value={formCarbPerGram} 
-                    onChange={(e) => setFormCarbPerGram(e.target.value)} 
-                  />
-                </div>
-                <div style={{ ...styles.formGroup, flex: 1 }}>
-                  <label style={styles.label}>Grasa (g)</label>
-                  <input 
-                    type="number" 
-                    step="0.001"
-                    style={styles.input} 
-                    value={formFatPerGram} 
-                    onChange={(e) => setFormFatPerGram(e.target.value)} 
-                  />
+              <div style={styles.calcPreviewCard}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 13, color: '#A0A0A0' }}>Costo Calculado por Gramo:</span>
+                  <strong style={{ fontSize: 14, color: '#34D399' }}>${calculatedCostPerGram.toFixed(4)} /g</strong>
                 </div>
               </div>
 
+              {/* Aportes Macros */}
+              {!isEditing && (
+                <>
+                  <h4 style={styles.sectionHeader}>Aportes Macronutricionales (por Gramo)</h4>
+                  <div style={styles.row}>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.label}>Proteína (g)</label>
+                      <input 
+                        type="number" 
+                        step="0.001"
+                        style={styles.input} 
+                        value={formProteinPerGram} 
+                        onChange={(e) => setFormProteinPerGram(e.target.value)} 
+                      />
+                    </div>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.label}>Carbohidratos (g)</label>
+                      <input 
+                        type="number" 
+                        step="0.001"
+                        style={styles.input} 
+                        value={formCarbPerGram} 
+                        onChange={(e) => setFormCarbPerGram(e.target.value)} 
+                      />
+                    </div>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.label}>Grasa (g)</label>
+                      <input 
+                        type="number" 
+                        step="0.001"
+                        style={styles.input} 
+                        value={formFatPerGram} 
+                        onChange={(e) => setFormFatPerGram(e.target.value)} 
+                      />
+                    </div>
+                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                      <label style={styles.label}>Kcal</label>
+                      <input 
+                        type="number" 
+                        step="0.01"
+                        style={styles.input} 
+                        value={formKcalPerGram} 
+                        onChange={(e) => setFormKcalPerGram(e.target.value)} 
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Límites y Porción por Defecto */}
               <h4 style={styles.sectionHeader}>Configuración de Límites (Pesajes Cocina)</h4>
               <div style={styles.row}>
                 <div style={{ ...styles.formGroup, flex: 1 }}>
@@ -323,14 +460,40 @@ export default function MacrosDashboard() {
                     onChange={(e) => setFormMaxGrams(e.target.value)} 
                   />
                 </div>
-                <div style={{ ...styles.formGroup, flex: 1 }}>
-                  <label style={styles.label}>Por Defecto (g)</label>
+              </div>
+
+              <div style={styles.row}>
+                <div style={{ ...styles.formGroup, flex: 2 }}>
+                  <label style={styles.label}>Por Defecto ({formDefaultUnitType === "unit" ? formUnitName : "gramos"})</label>
                   <input 
                     type="number" 
+                    step="0.01"
                     style={styles.input} 
-                    value={formDefaultGrams} 
-                    onChange={(e) => setFormDefaultGrams(e.target.value)} 
+                    value={formDefaultVal} 
+                    onChange={(e) => setFormDefaultVal(e.target.value)} 
                   />
+                </div>
+                <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <label style={styles.label}>Medida</label>
+                  <select 
+                    style={styles.select}
+                    value={formDefaultUnitType}
+                    onChange={(e) => setFormDefaultUnitType(e.target.value)}
+                  >
+                    <option value="g">Gramos (g)</option>
+                    {formUnitName && <option value="unit">{formUnitName}(s)</option>}
+                  </select>
+                </div>
+              </div>
+
+              <div style={styles.calcPreviewCard}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 13, color: '#A0A0A0' }}>Porción resultante en Gramos:</span>
+                  <strong style={{ fontSize: 14, color: '#F97316' }}>{calculatedDefaultGrams}g</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+                  <span style={{ fontSize: 13, color: '#A0A0A0' }}>Costo de porción default:</span>
+                  <strong style={{ fontSize: 14, color: '#34D399' }}>${(calculatedDefaultGrams * calculatedCostPerGram).toFixed(2)} MXN</strong>
                 </div>
               </div>
 
@@ -481,6 +644,16 @@ const styles = {
       borderColor: "#EF4444"
     }
   },
+  calcPreviewCard: {
+    backgroundColor: "#070707",
+    border: "1px solid #1C1C1C",
+    borderRadius: 12,
+    padding: 12,
+    display: "flex",
+    flexDirection: "column",
+    marginTop: -8,
+    marginBottom: 8
+  },
 
   // Modal styles
   modalOverlay: {
@@ -501,7 +674,7 @@ const styles = {
     backgroundColor: '#111111',
     border: '1px solid #1C1C1C',
     width: '100%',
-    maxWidth: '520px',
+    maxWidth: '540px',
     maxHeight: '90vh',
     borderRadius: '24px',
     padding: '32px',
@@ -565,6 +738,8 @@ const styles = {
     color: '#A0A0A0'
   },
   input: {
+    width: '100%',
+    boxSizing: 'border-box',
     backgroundColor: '#0A0A0A',
     border: '1px solid #1C1C1C',
     borderRadius: '10px',
@@ -576,6 +751,18 @@ const styles = {
     ':focus': {
       borderColor: '#34D399'
     }
+  },
+  select: {
+    width: '100%',
+    boxSizing: 'border-box',
+    backgroundColor: '#0A0A0A',
+    border: '1px solid #1C1C1C',
+    borderRadius: '10px',
+    padding: '12px 14px',
+    color: '#FFF',
+    fontSize: '14px',
+    outline: 'none',
+    cursor: 'pointer'
   },
   formActions: {
     display: 'flex',
@@ -614,3 +801,5 @@ const styles = {
     }
   }
 };
+
+

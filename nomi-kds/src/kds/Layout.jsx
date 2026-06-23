@@ -1,7 +1,31 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { db } from "../firebase/firebaseconfig";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 
 export default function Layout({ currentView, onViewChange, user, onLogout, children }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [restaurantStatus, setRestaurantStatus] = useState(true);
+
+  useEffect(() => {
+    if (!user || user.restaurantId === "all") return;
+    const unsub = onSnapshot(doc(db, "restaurants", user.restaurantId), (docSnap) => {
+      if (docSnap.exists()) {
+        setRestaurantStatus(docSnap.data().isAvailable !== false);
+      }
+    });
+    return () => unsub();
+  }, [user]);
+
+  const toggleAvailability = async () => {
+    if (!user || user.restaurantId === "all") return;
+    try {
+      await updateDoc(doc(db, "restaurants", user.restaurantId), {
+        isAvailable: !restaurantStatus
+      });
+    } catch (e) {
+      console.error("Error toggling availability:", e);
+    }
+  };
 
   const menuItems = [
     { id: "orders", label: "Órdenes (KDS)", icon: "🍳" },
@@ -57,6 +81,24 @@ export default function Layout({ currentView, onViewChange, user, onLogout, chil
           })}
         </div>
         
+        {user && user.restaurantId !== "all" && (
+          <div style={styles.availabilitySection}>
+            <span style={styles.availabilityLabel}>Plataforma Nomi:</span>
+            <button
+              type="button"
+              onClick={toggleAvailability}
+              style={{
+                ...styles.availabilityBtn,
+                backgroundColor: restaurantStatus ? "rgba(52, 211, 153, 0.1)" : "rgba(239, 68, 68, 0.1)",
+                color: restaurantStatus ? "#34D399" : "#EF4444",
+                borderColor: restaurantStatus ? "#34D399" : "#EF4444",
+              }}
+            >
+              {restaurantStatus ? "🟢 Disponible" : "🔴 Fuera de Servicio"}
+            </button>
+          </div>
+        )}
+
         {user && (
           <div style={styles.userSection}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
@@ -273,6 +315,31 @@ const styles = {
     overflow: "hidden",
     position: "relative",
     transition: "padding-left 0.3s cubic-bezier(0.4, 0, 0.2, 1)"
+  },
+  availabilitySection: {
+    padding: "16px 24px",
+    borderTop: "1px solid #1C1C1C",
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  availabilityLabel: {
+    fontSize: 12,
+    color: "#6B6B6B",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+    fontWeight: 600,
+  },
+  availabilityBtn: {
+    padding: "8px 12px",
+    borderRadius: 8,
+    border: "1px solid",
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: "pointer",
+    transition: "all 0.2s ease",
+    textAlign: "center",
+    width: "100%",
   }
 };
 

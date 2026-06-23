@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useKitchenOrders } from "./hooks/useKitchenOrders";
+import { db } from "../firebase/firebaseconfig";
+import { collection, onSnapshot } from "firebase/firestore";
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
@@ -86,30 +88,87 @@ function KDSHeader({ pendingCount, readyCount, currentTime, selectedRestaurant, 
   );
 }
 
-function IngredientRow({ ingredient }) {
+function IngredientRow({ ingredient, dbIngredients = [] }) {
+  const getReadableFraction = (val, unitName) => {
+    if (val <= 0) return "";
+    
+    const integerPart = Math.floor(val);
+    const f = val - integerPart;
+    let fraction = "";
+    let extraInt = 0;
+    
+    if (f < 0.125) {
+      fraction = "";
+    } else if (f < 0.291) {
+      fraction = "1/4";
+    } else if (f < 0.416) {
+      fraction = "1/3";
+    } else if (f < 0.583) {
+      fraction = "1/2";
+    } else if (f < 0.708) {
+      fraction = "2/3";
+    } else if (f < 0.875) {
+      fraction = "3/4";
+    } else {
+      extraInt = 1;
+    }
+    
+    const totalInt = integerPart + extraInt;
+    
+    // Determine singular/plural for unit name
+    let unit = unitName;
+    if (unitName === "porción") {
+      if (totalInt === 1 && !fraction) {
+        unit = "porción";
+      } else {
+        unit = "porciones";
+      }
+    }
+    
+    let result = "";
+    if (totalInt > 0 && fraction) {
+      result = `${totalInt} y ${fraction}`;
+    } else if (totalInt > 0) {
+      result = `${totalInt}`;
+    } else if (fraction) {
+      result = fraction;
+    }
+    
+    if (!result) {
+      // If it rounded to 0 (e.g. less than 1/8 portion), display as decimal
+      const dec = Math.round(val * 10) / 10;
+      if (dec <= 0) return "";
+      return `${dec} ${dec === 1 ? unitName : unitName + "es"}`;
+    }
+    
+    return `${result} ${unit}`;
+  };
+
+  // Find live ingredient in dbIngredients to get defaultGrams
+  const dbIng = dbIngredients.find(
+    (i) =>
+      i.id === ingredient.id ||
+      i.id === ingredient.masterIngredientId ||
+      i.name?.toLowerCase().trim() === ingredient.name?.toLowerCase().trim()
+  );
+
+  // Portion base weight: live defaultGrams, or live averageWeightPerUnit, or ingredient-defined defaultGrams, or fallback to 100g
+  const baseWeight = dbIng?.defaultGrams || dbIng?.averageWeightPerUnit || ingredient.defaultGrams || ingredient.averageWeightPerUnit || 100;
+  const unitName = dbIng?.unitName || ingredient.unitName || "porción";
+  
+  const portions = ingredient.grams / baseWeight;
+  const portionsText = getReadableFraction(portions, unitName);
+
   return (
     <div style={styles.ingredientRow}>
-      <div style={styles.ingredientInfo}>
-        <span style={styles.ingredientName}>{ingredient.name}</span>
-      </div>
-      <div style={styles.ingredientGrams}>
-        <span style={styles.gramsNumber}>{ingredient.grams}</span>
-        <span style={styles.gramsLabel}>g</span>
-      </div>
-      {/* Barra visual de cantidad relativa — máx referencial 300g */}
-      <div style={styles.ingredientBarTrack}>
-        <div
-          style={{
-            ...styles.ingredientBarFill,
-            width: `${Math.min((ingredient.grams / 300) * 100, 100)}%`,
-          }}
-        />
-      </div>
+      <span style={styles.ingredientText}>
+        {ingredient.name} - {portionsText || `${portions.toFixed(1)} ${unitName}`} ({ingredient.grams}g)
+      </span>
     </div>
   );
 }
 
-function PendingOrderCard({ order, onMarkReady }) {
+function PendingOrderCard({ order, onMarkReady, dbIngredients }) {
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateError, setUpdateError] = useState(null);
   const [elapsed, setElapsed] = useState(getElapsedMinutes(order.createdAt));
@@ -186,8 +245,20 @@ function PendingOrderCard({ order, onMarkReady }) {
           {/* ── Ingredientes con gramos exactos ── */}
           <div style={styles.ingredientsList}>
             {item.customizedIngredients?.map((ingredient, ingIndex) => (
-              <IngredientRow key={ingIndex} ingredient={ingredient} />
+              <IngredientRow key={ingIndex} ingredient={ingredient} dbIngredients={dbIngredients} />
             ))}
+            {item.selectedOptions && item.selectedOptions.length > 0 && (
+              <div style={{ borderTop: "1px solid #1C1C1C", paddingTop: 8, marginTop: 8 }}>
+                <span style={{ color: "#F97316", fontSize: 11, fontWeight: 700, textTransform: "uppercase" }}>
+                  Adicionales:
+                </span>
+                {item.selectedOptions.map((opt, optIndex) => (
+                  <div key={optIndex} style={{ fontSize: 13, color: "#34D399", marginTop: 4 }}>
+                    + {opt.name} ({opt.type === 'substitute' ? 'Sustituto' : 'Extra'})
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       ))}
@@ -277,6 +348,20 @@ export default function KitchenDashboard({ selectedRestaurant = "all", onSelectR
   const { pendingOrders, readyOrders, loading, error, markAsReady } =
     useKitchenOrders(selectedRestaurant);
 
+  const [dbIngredients, setDbIngredients] = useState([]);
+
+  // Escuchar en tiempo real los ingredientes para conocer los defaultGrams de cada uno
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, "ingredients"), (snapshot) => {
+      if (!snapshot.empty) {
+        const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setDbIngredients(list);
+      }
+    }, err => console.warn("Error loading ingredients inside KDS:", err));
+    
+    return () => unsubscribe();
+  }, []);
+
   // Reloj en tiempo real para el header
   const [currentTime, setCurrentTime] = useState(
     new Date().toLocaleTimeString("es-MX", {
@@ -338,6 +423,7 @@ export default function KitchenDashboard({ selectedRestaurant = "all", onSelectR
                   key={order.id}
                   order={order}
                   onMarkReady={markAsReady}
+                  dbIngredients={dbIngredients}
                 />
               ))
             )}
@@ -630,7 +716,12 @@ const styles = {
   ingredientRow: {
     display: "flex",
     alignItems: "center",
-    gap: 12,
+    padding: "4px 0",
+  },
+  ingredientText: {
+    fontSize: "14px",
+    color: "#F5F5F0",
+    fontWeight: 500,
   },
   ingredientInfo: {
     width: 80,
