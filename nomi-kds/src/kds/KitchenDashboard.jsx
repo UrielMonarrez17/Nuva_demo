@@ -471,7 +471,7 @@ const styles = {
     flexDirection: "column",
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     color: "#F5F5F0",
-    overflow: "hidden",
+    overflowY: "auto",
   },
   fullScreenCenter: {
     display: "flex",

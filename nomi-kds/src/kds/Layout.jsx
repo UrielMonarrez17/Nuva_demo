@@ -147,7 +147,7 @@ const styles = {
     backgroundColor: "#0A0A0A",
     color: "#F5F5F0",
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-    overflow: "hidden"
+    overflow: "hidden" // Layout wrapper stays hidden to keep sidebar fixed
   },
   sidebar: {
     backgroundColor: "#111111",
@@ -312,7 +312,7 @@ const styles = {
     flex: 1,
     display: "flex",
     flexDirection: "column",
-    overflow: "hidden",
+    overflowY: "auto",
     position: "relative",
     transition: "padding-left 0.3s cubic-bezier(0.4, 0, 0.2, 1)"
   },
