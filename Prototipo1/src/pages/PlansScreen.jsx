@@ -864,7 +864,7 @@ export default function PlansScreen() {
             </ul>
           </div>
           
-          <div style={{ height: 100 }} />
+          <div style={{ height: "calc(100px + env(safe-area-inset-bottom))" }} />
         </div>
       </IonContent>
     </IonPage>
@@ -1412,6 +1412,9 @@ const styles = {
     borderRadius: 24,
     padding: "24px",
     width: "100%",
+    maxHeight: "90vh",
+    overflowY: "auto",
+    boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
     gap: 16,

@@ -10,6 +10,7 @@ export default function Home() {
   const { 
     userProfile, 
     recipes, 
+    ingredients,
     restaurants, 
     activeRole, 
     patientSelector, 
@@ -46,6 +47,26 @@ export default function Home() {
       pathname: `/customDish/${pres.recipeId}`,
       state: { initialGrams: pres.gramsMap, prescriptionId: pres.id }
     });
+  };
+
+  const getRecipeBasePrice = (recipe) => {
+    if (!recipe || !ingredients) return 90;
+    
+    // Sum cost of allowed ingredients at their default/min grams
+    const ingredientCost = recipe.allowedIngredients.reduce((total, ingId) => {
+      const ing = ingredients.find((i) => i.id === ingId || i.masterIngredientId === ingId);
+      if (!ing) return total;
+      
+      const limits = recipe.ingredientLimits?.[ing.id] || {};
+      const grams = limits.default !== undefined ? limits.default : (ing.defaultGrams || 0);
+      const price = ing.pricePerGram ?? ing.costPerGram ?? 0;
+      
+      return total + (grams * price);
+    }, 0);
+
+    const productionCost = ingredientCost + (recipe.fixedCost || 0);
+    const finalPrice = Math.max(productionCost * 3, 90);
+    return finalPrice;
   };
 
   const [activeCategory, setActiveCategory] = useState("Todos");
@@ -314,7 +335,7 @@ export default function Home() {
                           <span>~450-700 kcal</span>
                         </div>
                         <span style={styles.basePrice}>
-                          Desde <strong style={styles.orangePrice}>$90 MXN</strong>
+                          Desde <strong style={styles.orangePrice}>${getRecipeBasePrice(recipe).toFixed(2)} MXN</strong>
                         </span>
                       </div>
                     </div>
@@ -325,7 +346,7 @@ export default function Home() {
           </div>
 
           {/* Extra bottom spacing for navigation */}
-          <div style={{ height: 100 }} />
+          <div style={{ height: "calc(100px + env(safe-area-inset-bottom))" }} />
         </div>
       </IonContent>
     </IonPage>

@@ -892,7 +892,7 @@ export default function NutriDashboard() {
           )}
 
           {/* Bottom spacing */}
-          <div style={{ height: 100 }} />
+          <div style={{ height: "calc(100px + env(safe-area-inset-bottom))" }} />
         </div>
       </IonContent>
     </IonPage>
@@ -1313,6 +1313,9 @@ const styles = {
     padding: "24px",
     width: "100%",
     maxWidth: 400,
+    maxHeight: "90vh",
+    overflowY: "auto",
+    boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
     gap: 16,

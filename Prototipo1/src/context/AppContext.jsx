@@ -8,7 +8,10 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   GoogleAuthProvider,
-  signInWithPopup
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  signInWithCredential
 } from "firebase/auth";
 import {
   doc,
@@ -24,6 +27,9 @@ import {
   updateDoc,
   deleteDoc
 } from "firebase/firestore";
+
+import { Capacitor } from "@capacitor/core";
+import { GoogleSignIn } from "@capawesome/capacitor-google-sign-in";
 
 const AppContext = createContext(null);
 
@@ -182,7 +188,8 @@ const MOCK_RECIPES = [
     estimatedPrepTime: 12,
     category: "Pollo",
     restaurantId: "rest_nativa",
-    tags: ["Alto en Proteína", "Bajo en Grasa", "Popular"]
+    tags: ["Alto en Proteína", "Bajo en Grasa", "Popular"],
+    basePrice: 85
   },
   {
     id: "recipe_salmon_quinoa",
@@ -194,7 +201,8 @@ const MOCK_RECIPES = [
     estimatedPrepTime: 15,
     category: "Salmón",
     restaurantId: "rest_green",
-    tags: ["Omega 3", "Keto", "Premium"]
+    tags: ["Omega 3", "Keto", "Premium"],
+    basePrice: 145
   },
   {
     id: "recipe_wrap_fit",
@@ -206,7 +214,8 @@ const MOCK_RECIPES = [
     estimatedPrepTime: 8,
     category: "Wrap",
     restaurantId: "rest_nativa",
-    tags: ["Vegano", "Fibra Alta"]
+    tags: ["Vegano", "Fibra Alta"],
+    basePrice: 65
   },
   {
     id: "recipe_avena_fruta",
@@ -218,7 +227,8 @@ const MOCK_RECIPES = [
     estimatedPrepTime: 10,
     category: "Avena",
     restaurantId: "rest_green",
-    tags: ["Desayuno", "Energía", "Dulce"]
+    tags: ["Desayuno", "Energía", "Dulce"],
+    basePrice: 50
   },
   {
     id: "recipe_pollo_brocoli",
@@ -230,7 +240,8 @@ const MOCK_RECIPES = [
     estimatedPrepTime: 15,
     category: "Pollo",
     restaurantId: "rest_nativa",
-    tags: ["Clásico", "Alto en Proteína"]
+    tags: ["Clásico", "Alto en Proteína"],
+    basePrice: 95
   },
   {
     id: "recipe_bowl_vegano",
@@ -242,7 +253,8 @@ const MOCK_RECIPES = [
     estimatedPrepTime: 12,
     category: "Bowl",
     restaurantId: "rest_green",
-    tags: ["Vegano", "Ligero"]
+    tags: ["Vegano", "Ligero"],
+    basePrice: 75
   },
   {
     id: "recipe_avena_horneada",
@@ -254,7 +266,8 @@ const MOCK_RECIPES = [
     estimatedPrepTime: 20,
     category: "Avena",
     restaurantId: "rest_green",
-    tags: ["Dulce", "Fibra"]
+    tags: ["Dulce", "Fibra"],
+    basePrice: 55
   }
 ];
 
@@ -283,8 +296,49 @@ export function AppProvider({ children }) {
     { id: "2", street: "Calle Tulipanes 45", neighborhood: "Condesa", city: "CDMX", active: false }
   ]);
 
+  // Helper: detect if we are on a mobile device or WebView (Android/iOS)
+  // signInWithPopup does NOT work on Android WebViews — it redirects to localhost and gets stuck.
+  const isMobileOrNative = () => {
+    if (Capacitor.isNativePlatform()) return true;
+    const ua = navigator.userAgent || "";
+    // Detects Android WebView, iOS WebView, and generic mobile browsers
+    return /(android|iphone|ipad|ipod)/i.test(ua);
+  };
+
   // Handle Firebase Auth
   useEffect(() => {
+    // Initialize Capawesome Google Sign-In on Native
+    if (Capacitor.isNativePlatform()) {
+      // NOTE: Replace 'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com' with the actual Web Client ID from Google Cloud Console
+      GoogleSignIn.initialize({
+        clientId: '947823294964-k9ibjt576t51uplu97d2mhap3rcsvj77.apps.googleusercontent.com',
+      }).catch(console.error);
+    }
+
+    // Handle redirect result for ALL environments (native AND mobile browser)
+    // This runs after a signInWithRedirect completes and the page reloads
+    getRedirectResult(auth).then(async (result) => {
+      if (result && result.user) {
+        const user = result.user;
+        const userDocRef = doc(db, "users", user.uid);
+        const userSnap = await getDoc(userDocRef);
+        if (!userSnap.exists()) {
+          const profile = {
+            name: user.displayName || user.email.split("@")[0],
+            email: user.email,
+            role: "client",
+            photoURL: user.photoURL || null,
+            createdAt: new Date().toISOString()
+          };
+          await setDoc(userDocRef, profile);
+        }
+        // onAuthStateChanged will pick up the user and set state
+      }
+    }).catch((err) => {
+      // Ignore errors here — they are handled in loginWithGoogle
+      console.warn("getRedirectResult error (non-fatal):", err.code, err.message);
+    });
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setLoading(true);
       if (user) {
@@ -487,8 +541,60 @@ export function AppProvider({ children }) {
   const loginWithGoogle = async () => {
     setLoading(true);
     try {
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const result = await GoogleSignIn.signIn();
+          const idToken = result.idToken;
+          if (!idToken) {
+            throw new Error("No ID Token provided by Google Sign-In");
+          }
+          const credential = GoogleAuthProvider.credential(idToken);
+          const fbResult = await signInWithCredential(auth, credential);
+          const user = fbResult.user;
+
+          // Check if user already has a Firestore profile
+          const userDocRef = doc(db, "users", user.uid);
+          const userSnap = await getDoc(userDocRef);
+
+          if (!userSnap.exists()) {
+            const profile = {
+              name: user.displayName || user.email.split("@")[0],
+              email: user.email,
+              role: "client",
+              photoURL: user.photoURL || null,
+              createdAt: new Date().toISOString()
+            };
+            await setDoc(userDocRef, profile);
+            setUserProfile({ uid: user.uid, ...profile });
+            setActiveRole("client");
+          }
+          setLoading(false);
+          return { success: true };
+        } catch (e) {
+          // If the user canceled the sign in flow, just return without error msg
+          if (e.message && e.message.includes('cancel')) {
+            setLoading(false);
+            return { success: false, error: null };
+          }
+          throw e; // re-throw to be caught by the outer catch
+        }
+      }
+
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
+
+      if (isMobileOrNative()) {
+        // On Android (native app or mobile browser), signInWithPopup opens a
+        // new window that redirects back to localhost — which breaks in WebViews.
+        // signInWithRedirect is the correct approach: it navigates the whole app
+        // to Google's auth page, then back. The result is handled in useEffect
+        // via getRedirectResult() above.
+        await signInWithRedirect(auth, provider);
+        // Page will reload after redirect — no return value needed
+        return { success: true };
+      }
+
+      // Desktop browsers: use popup (works fine)
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
 
@@ -517,7 +623,8 @@ export function AppProvider({ children }) {
       console.error("Google login failed:", error);
       setLoading(false);
       // If popup was closed by user, don't show error
-      if (error.code === "auth/popup-closed-by-user") {
+      if (error.code === "auth/popup-closed-by-user" ||
+          error.code === "auth/cancelled-popup-request") {
         return { success: false, error: null };
       }
       return { success: false, error: error.message };

@@ -5,6 +5,8 @@ import { Redirect, Route, Switch } from 'react-router-dom';
 import { IonApp, IonRouterOutlet, setupIonicReact, IonSpinner } from '@ionic/react';
 import { IonReactRouter } from '@ionic/react-router';
 import { AppProvider, useApp } from './context/AppContext';
+import { Geolocation } from '@capacitor/geolocation';
+import { useEffect } from 'react';
 
 // Pages
 import LoginScreen from './pages/LoginScreen';
@@ -61,6 +63,22 @@ function ProtectedRoute({ children, ...rest }: any) {
 
 const MainApp: React.FC = () => {
   const { currentUser, loading } = useApp();
+
+  useEffect(() => {
+    if (currentUser) {
+      const requestGlobalPermissions = async () => {
+        try {
+          const perm = await Geolocation.checkPermissions();
+          if (perm.location !== 'granted') {
+            await Geolocation.requestPermissions();
+          }
+        } catch (error) {
+          console.warn("Error requesting global permissions:", error);
+        }
+      };
+      requestGlobalPermissions();
+    }
+  }, [currentUser]);
 
   if (loading) {
     return (

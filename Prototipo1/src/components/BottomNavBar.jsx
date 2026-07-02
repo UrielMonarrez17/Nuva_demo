@@ -131,7 +131,8 @@ const styles = {
     right: 0,
     backgroundColor: "#131316",
     borderTop: "1px solid #222227",
-    padding: "8px 0 24px 0", // Bottom padding for iOS safe area style
+    paddingTop: "8px",
+    paddingBottom: "calc(12px + env(safe-area-inset-bottom, 24px))",
     zIndex: 900,
     display: "flex",
     justifyContent: "center",

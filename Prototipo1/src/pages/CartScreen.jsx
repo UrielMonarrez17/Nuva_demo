@@ -414,12 +414,14 @@ export default function CartScreen() {
                 >
                   Cerrar
                 </button>
+                {/* Spacer at bottom of modal to ensure content isn't cut off by safe areas or padding */}
+                <div style={{ height: 32, flexShrink: 0, width: "100%" }} />
               </div>
             </div>
           )}
 
           {/* Bottom spacing */}
-          <div style={{ height: 100 }} />
+          <div style={{ height: "calc(100px + env(safe-area-inset-bottom))" }} />
         </div>
       </IonContent>
     </IonPage>
@@ -801,21 +803,25 @@ const styles = {
     padding: "32px 24px",
     width: "100%",
     maxWidth: 360,
+    maxHeight: "90vh",
+    overflowY: "auto",
+    boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
-    alignItems: "center",
     gap: 12,
     boxShadow: "0 15px 40px rgba(0,0,0,0.6)",
   },
   modalSuccessIcon: {
     fontSize: 54,
     marginBottom: 8,
+    alignSelf: "center",
   },
   modalTitle: {
     fontSize: 20,
     fontWeight: 800,
     color: "#F8FAFC",
     margin: 0,
+    textAlign: "center",
   },
   modalSubtitle: {
     fontSize: 13,

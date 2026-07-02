@@ -122,7 +122,7 @@ export default function OrdersScreen() {
             </div>
           )}
 
-          <div style={{ height: 100 }} />
+          <div style={{ height: "calc(100px + env(safe-area-inset-bottom))" }} />
         </div>
       </IonContent>
     </IonPage>

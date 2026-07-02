@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "947823294964",
+    "firebase_url": "https://nuva-app-e5c42-default-rtdb.firebaseio.com",
+    "project_id": "nuva-app-e5c42",
+    "storage_bucket": "nuva-app-e5c42.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:947823294964:android:db05ae44540f26c43e21a1",
+        "android_client_info": {
+          "package_name": "com.nuva.nuva"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "947823294964-1il7l2jdbalps424guo30mrde15enm85.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nuva.nuva",
+            "certificate_hash": "8b3103ef0c1dc2111e5da7a1c23ec6e89dc92175"
+          }
+        },
+        {
+          "client_id": "947823294964-k9ibjt576t51uplu97d2mhap3rcsvj77.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBrU9Mw2KkvUYAfV1ALe9SND5xVggEpLwk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "947823294964-k9ibjt576t51uplu97d2mhap3rcsvj77.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

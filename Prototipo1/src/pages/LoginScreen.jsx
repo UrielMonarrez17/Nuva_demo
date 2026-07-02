@@ -87,12 +87,25 @@ export default function LoginScreen() {
     setErrorMsg("");
     setLoading(true);
     const res = await loginWithGoogle();
-    setLoading(false);
-    if (res.success) {
-      alert("¡Sesión iniciada con Google!");
-      history.push("/home");
-    } else if (res.error) {
-      setErrorMsg(res.error);
+    
+    if (res && res.success !== undefined) {
+      setLoading(false);
+      if (res.success) {
+        import("@capacitor/core").then(({ Capacitor }) => {
+          // Native app: plugin resolves immediately, no page reload
+          // Desktop web: popup resolves immediately, no page reload
+          // Mobile web: signInWithRedirect reloads page, so we don't navigate
+          const isMobileWeb = /(android|iphone|ipad|ipod)/i.test(navigator.userAgent) && !Capacitor.isNativePlatform();
+          
+          if (!isMobileWeb) {
+            alert("¡Sesión iniciada con Google!");
+            history.push("/home");
+          }
+        });
+      } else if (res.error) {
+        setErrorMsg(res.error);
+        alert("Error de inicio de sesión: " + res.error);
+      }
     }
   };
 

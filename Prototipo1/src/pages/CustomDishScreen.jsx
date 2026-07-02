@@ -5,7 +5,7 @@ import { useParams, useHistory, useLocation } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useRecipeLoader } from "../hooks/useRecipeLoader";
 import { usePricingCalculator } from "../hooks/usePricingCalculator";
-import { IonPage, IonContent, IonIcon } from "@ionic/react";
+import { IonPage, IonContent, IonIcon, useIonViewWillEnter } from "@ionic/react";
 import { arrowBackOutline, documentTextOutline, cartOutline } from "ionicons/icons";
 
 // ─── SUBCOMPONENTES ───────────────────────────────────────────────────────────
@@ -157,6 +157,7 @@ function OrderSuccessModal({ isPrescription, patientName, orderId, onGoBack, onG
               </button>
             </>
           )}
+          <div style={{ height: 24, flexShrink: 0, width: "100%" }} />
         </div>
       </div>
     </div>
@@ -181,6 +182,11 @@ export default function CustomDishScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+  useIonViewWillEnter(() => {
+    setShowSuccessModal(false);
+    setSubmitError(null);
+  });
 
   const handleToggleExclude = useCallback((ingredientId, defGrams) => {
     setExcludedIngredients((prev) => {
@@ -476,6 +482,7 @@ export default function CustomDishScreen() {
   };
 
   const handleGoBack = () => {
+    setShowSuccessModal(false);
     if (activeRole === "nutriologist" && patientSelector && showSuccessModal) {
       // Clear patient selector after successful prescription and go to dashboard
       setPatientSelector(null);
@@ -486,6 +493,7 @@ export default function CustomDishScreen() {
   };
 
   const handleGoCart = () => {
+    setShowSuccessModal(false);
     history.push("/cart");
   };
 
@@ -1294,6 +1302,9 @@ const styles = {
     padding: "36px 24px",
     width: "100%",
     maxWidth: 360,
+    maxHeight: "90vh",
+    overflowY: "auto",
+    boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",

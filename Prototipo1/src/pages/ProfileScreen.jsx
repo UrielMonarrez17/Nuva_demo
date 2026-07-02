@@ -421,7 +421,7 @@ export default function ProfileScreen() {
           )}
 
           {/* Bottom navigation padding */}
-          <div style={{ height: 100 }} />
+          <div style={{ height: "calc(100px + env(safe-area-inset-bottom))" }} />
         </div>
       </IonContent>
     </IonPage>
@@ -672,6 +672,7 @@ const styles = {
     borderRadius: '24px',
     padding: '24px',
     overflowY: 'auto',
+    boxSizing: 'border-box',
     display: 'flex',
     flexDirection: 'column',
     gap: '20px',

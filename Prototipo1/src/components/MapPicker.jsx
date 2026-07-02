@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import { Geolocation } from "@capacitor/geolocation";
 
 // Fix for default marker icon in Leaflet + Webpack/Vite
 import L from "leaflet";
@@ -65,23 +66,26 @@ export default function MapPicker({ onConfirm }) {
     fetchAddress(latlng.lat, latlng.lng);
   };
 
-  const getUserLocation = () => {
-    if ("geolocation" in navigator) {
+  const getUserLocation = async () => {
+    try {
       setLoading(true);
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const { latitude, longitude } = pos.coords;
-          setPosition({ lat: latitude, lng: longitude });
-          fetchAddress(latitude, longitude);
-        },
-        (err) => {
-          console.warn("Geolocation error:", err);
-          // Fallback to default position
-          fetchAddress(position.lat, position.lng);
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
-    } else {
+      const permResult = await Geolocation.requestPermissions();
+      
+      if (permResult.location === 'denied') {
+        throw new Error('Location permission denied');
+      }
+
+      const pos = await Geolocation.getCurrentPosition({
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      });
+      const { latitude, longitude } = pos.coords;
+      setPosition({ lat: latitude, lng: longitude });
+      fetchAddress(latitude, longitude);
+    } catch (err) {
+      console.warn("Geolocation error:", err);
+      // Fallback to default position
       fetchAddress(position.lat, position.lng);
     }
   };

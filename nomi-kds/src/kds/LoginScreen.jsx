@@ -301,13 +301,13 @@ export default function LoginScreen({ onLogin }) {
           <form onSubmit={handleLogin} style={s.form}>
             <div>
               <h2 style={s.formTitle}>Bienvenido</h2>
-              <p style={s.subtitle}>Ingresa tus credenciales asignadas por la administración.</p>
+              <p style={s.subtitle}>Ingresa tu correo asignado por la administración o tu correo postulado.</p>
             </div>
 
             {error && <div style={s.errorBox}>{error}</div>}
 
             <div style={s.inputGroup}>
-              <label style={s.label}>Correo Electrónico</label>
+              <label style={s.label}>Correo Electrónico (Encargado o Restaurante)</label>
               <input
                 type="email"
                 placeholder="Ej. chef@restaurante.com"
