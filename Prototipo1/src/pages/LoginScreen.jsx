@@ -85,8 +85,20 @@ export default function LoginScreen() {
 
   const handleGoogleLogin = async () => {
     setErrorMsg("");
+    
+    let additionalInfo = {};
+    if (mode === "signup") {
+      if (accountType === "nutriologist") {
+        if (!license || !phone) {
+          setErrorMsg("Completa tu cédula profesional y teléfono de contacto antes de continuar con Google.");
+          return;
+        }
+        additionalInfo = { license, phone };
+      }
+    }
+
     setLoading(true);
-    const res = await loginWithGoogle();
+    const res = await loginWithGoogle(mode === "signup" ? accountType : "client", additionalInfo);
     
     if (res && res.success !== undefined) {
       setLoading(false);
@@ -151,7 +163,6 @@ export default function LoginScreen() {
                       >
                         <option value="client">Cliente / Paciente</option>
                         <option value="nutriologist">Nutriólogo Clínico</option>
-                        <option value="restaurant">Socio Restaurante / Cocina</option>
                       </select>
                   </div>
 

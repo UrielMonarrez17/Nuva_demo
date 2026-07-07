@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Redirect, Route, Switch } from 'react-router-dom';
-import { IonApp, IonRouterOutlet, setupIonicReact, IonSpinner } from '@ionic/react';
+import { IonApp, IonRouterOutlet, setupIonicReact, IonSpinner, IonToast } from '@ionic/react';
 import { IonReactRouter } from '@ionic/react-router';
 import { AppProvider, useApp } from './context/AppContext';
 import { Geolocation } from '@capacitor/geolocation';
@@ -62,7 +62,8 @@ function ProtectedRoute({ children, ...rest }: any) {
 }
 
 const MainApp: React.FC = () => {
-  const { currentUser, loading } = useApp();
+  const { currentUser, loading, errorMsg, setErrorMsg } = useApp() as any;
+
 
   useEffect(() => {
     if (currentUser) {
@@ -152,6 +153,15 @@ const MainApp: React.FC = () => {
       
       {/* Dynamic Bottom Navbar shown only when logged in */}
       {currentUser && <BottomNavBar />}
+      
+      <IonToast
+        isOpen={!!errorMsg}
+        message={errorMsg || ""}
+        duration={5000}
+        onDidDismiss={() => setErrorMsg(null)}
+        color="danger"
+        position="top"
+      />
     </IonReactRouter>
   );
 };

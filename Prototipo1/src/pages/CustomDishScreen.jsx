@@ -169,7 +169,7 @@ function OrderSuccessModal({ isPrescription, patientName, orderId, onGoBack, onG
 export default function CustomDishScreen() {
   const { recipeId } = useParams();
   const history = useHistory();
-  const { activeRole, patientSelector, addToCart, sendPrescription, setPatientSelector, restaurants, nutritionalPlan, redeemPrescription } = useApp();
+  const { activeRole, patientSelector, addToCart, sendPrescription, setPatientSelector, restaurants, nutritionalPlan, redeemPrescription, userProfile } = useApp();
 
   const activeRecipeId = recipeId || "recipe_tazon_teriyaki";
   const { recipe, ingredients, loading, error } = useRecipeLoader(activeRecipeId);
@@ -225,7 +225,7 @@ export default function CustomDishScreen() {
   const [portFat, setPortFat] = useState(0);
 
   const updateMacrosFromPortions = (p, c, v, f) => {
-    // Portions factors:
+    // Portions equivalents factors:
     // P (protein): 7g P, 3g F
     // C (carbs): 2g P, 15g C
     // V (veg): 1g P, 4g C
@@ -249,16 +249,87 @@ export default function CustomDishScreen() {
       if (initialGramsFromState) {
         setGramsMap(initialGramsFromState);
       } else {
-        const defaults = {};
-        ingredients.forEach((ing) => {
-          const limits = recipe.ingredientLimits?.[ing.id] || {};
-          defaults[ing.id] = limits.default !== undefined ? limits.default : ing.defaultGrams;
-        });
-        setGramsMap(defaults);
+        // If there's an activePlan, calculate the optimal grams automatically!
+        const activePlan = nutritionalPlan || (userProfile?.targetMacros ? {
+          kcalLimit: userProfile.targetMacros.kcalLimit,
+          proteinLimit: userProfile.targetMacros.proteinLimit,
+          carbLimit: userProfile.targetMacros.carbLimit,
+          fatLimit: userProfile.targetMacros.fatLimit,
+          periodType: userProfile.targetMacros.periodType || "day"
+        } : null);
+
+        if (activePlan) {
+          const divisor = activePlan.periodType === "day" ? 3 : 1;
+          const pTarget = activePlan.proteinLimit / divisor;
+          const cTarget = activePlan.carbLimit / divisor;
+          const fTarget = activePlan.fatLimit / divisor;
+
+          // Set target states so the UI/Calculator input matches
+          setTargetProtein(Math.round(pTarget).toString());
+          setTargetCarbs(Math.round(cTarget).toString());
+          setTargetFat(Math.round(fTarget).toString());
+
+          // Estimar porciones basadas en los macros objetivo
+          const estC = Math.round(cTarget / 15);
+          const estP = Math.max(0, Math.round((pTarget - estC * 2) / 7));
+          const estF = Math.max(0, Math.round((fTarget - estP * 3) / 5));
+          
+          setPortCarb(estC);
+          setPortProtein(estP);
+          setPortFat(estF);
+
+          // Identify primary source of protein, carbs, fat
+          let bestProteinSource = null;
+          let bestCarbSource = null;
+          let bestFatSource = null;
+          let maxP = -1, maxC = -1, maxF = -1;
+
+          ingredients.forEach(ing => {
+            if (ing.proteinPerGram > maxP) {
+              maxP = ing.proteinPerGram;
+              bestProteinSource = ing;
+            }
+            if (ing.carbPerGram > maxC) {
+              maxC = ing.carbPerGram;
+              bestCarbSource = ing;
+            }
+            if (ing.fatPerGram > maxF) {
+              maxF = ing.fatPerGram;
+              bestFatSource = ing;
+            }
+          });
+
+          const autoGramsMap = {};
+          ingredients.forEach(ing => {
+            const limits = recipe.ingredientLimits?.[ing.id] || {};
+            const minG = limits.min !== undefined ? limits.min : ing.minGrams;
+            const maxG = limits.max !== undefined ? limits.max : ing.maxGrams;
+            const defG = limits.default !== undefined ? limits.default : ing.defaultGrams;
+
+            let calculatedGrams = defG;
+            if (bestProteinSource && ing.id === bestProteinSource.id && bestProteinSource.proteinPerGram > 0) {
+              calculatedGrams = Math.round(pTarget / bestProteinSource.proteinPerGram);
+            } else if (bestCarbSource && ing.id === bestCarbSource.id && bestCarbSource.carbPerGram > 0) {
+              calculatedGrams = Math.round(cTarget / bestCarbSource.carbPerGram);
+            } else if (bestFatSource && ing.id === bestFatSource.id && bestFatSource.fatPerGram > 0) {
+              calculatedGrams = Math.round(fTarget / bestFatSource.fatPerGram);
+            }
+
+            autoGramsMap[ing.id] = Math.max(minG, Math.min(maxG, calculatedGrams));
+          });
+          setGramsMap(autoGramsMap);
+        } else {
+          const defaults = {};
+          ingredients.forEach((ing) => {
+            const limits = recipe.ingredientLimits?.[ing.id] || {};
+            defaults[ing.id] = limits.default !== undefined ? limits.default : ing.defaultGrams;
+          });
+          setGramsMap(defaults);
+        }
       }
       setIsInitialized(true);
     }
-  }, [ingredients, isInitialized, recipe, initialGramsFromState]);
+  }, [ingredients, isInitialized, recipe, initialGramsFromState, nutritionalPlan, userProfile?.targetMacros]);
 
   // Apply recipe-specific limits if defined
   const selectedIngredients = ingredients.map((ing) => {
@@ -284,79 +355,75 @@ export default function CustomDishScreen() {
     usePricingCalculator(selectedIngredients, (recipe?.fixedCost ?? 0) + optionsCost);
 
   // Real-time diet validation warning calculator
-  const dietTargetKcal = nutritionalPlan ? (nutritionalPlan.periodType === "day" ? nutritionalPlan.kcalLimit / 3 : nutritionalPlan.kcalLimit) : 2000 / 3;
-  const dietTargetProtein = nutritionalPlan ? (nutritionalPlan.periodType === "day" ? nutritionalPlan.proteinLimit / 3 : nutritionalPlan.proteinLimit) : 130 / 3;
-  const dietTargetCarbs = nutritionalPlan ? (nutritionalPlan.periodType === "day" ? nutritionalPlan.carbLimit / 3 : nutritionalPlan.carbLimit) : 250 / 3;
-  const dietTargetFat = nutritionalPlan ? (nutritionalPlan.periodType === "day" ? nutritionalPlan.fatLimit / 3 : nutritionalPlan.fatLimit) : 65 / 3;
+  const activePlan = nutritionalPlan || (userProfile?.targetMacros ? {
+    kcalLimit: userProfile.targetMacros.kcalLimit,
+    proteinLimit: userProfile.targetMacros.proteinLimit,
+    carbLimit: userProfile.targetMacros.carbLimit,
+    fatLimit: userProfile.targetMacros.fatLimit,
+    periodType: userProfile.targetMacros.periodType || "day"
+  } : null);
+
+  const dietTargetKcal = activePlan ? (activePlan.periodType === "day" ? activePlan.kcalLimit / 3 : activePlan.kcalLimit) : 2000 / 3;
+  const dietTargetProtein = activePlan ? (activePlan.periodType === "day" ? activePlan.proteinLimit / 3 : activePlan.proteinLimit) : 130 / 3;
+  const dietTargetCarbs = activePlan ? (activePlan.periodType === "day" ? activePlan.carbLimit / 3 : activePlan.carbLimit) : 250 / 3;
+  const dietTargetFat = activePlan ? (activePlan.periodType === "day" ? activePlan.fatLimit / 3 : activePlan.fatLimit) : 65 / 3;
 
   const warnings = [];
-  const statusLabel = nutritionalPlan ? "🩺 Plan de tu Nutriólogo" : "⚖️ Dieta Estándar (Recomendada)";
+  const statusLabel = activePlan ? "🩺 Plan de tu Nutriólogo" : "⚖️ Dieta Estándar (Recomendada)";
 
-  // Protein
-  if (macros.protein < dietTargetProtein * 0.9) {
-    warnings.push({
-      type: "warning",
-      text: `Te faltan ${(dietTargetProtein - macros.protein).toFixed(1)}g de Proteína para alcanzar tu meta de esta comida (${dietTargetProtein.toFixed(0)}g).`
-    });
-  } else if (macros.protein > dietTargetProtein * 1.1) {
-    warnings.push({
-      type: "danger",
-      text: `Te estás excediendo por ${(macros.protein - dietTargetProtein).toFixed(1)}g de Proteína en esta comida (${dietTargetProtein.toFixed(0)}g meta).`
-    });
-  } else {
-    warnings.push({
-      type: "success",
-      text: `Proteína ideal: ¡Estás dentro del rango objetivo (${macros.protein}g / ${dietTargetProtein.toFixed(0)}g)!`
-    });
-  }
+  // Check warnings only if there is an active plan
+  if (activePlan) {
+    // Protein
+    if (macros.protein < dietTargetProtein * 0.9) {
+      warnings.push({
+        type: "warning",
+        text: `Te faltan ${(dietTargetProtein - macros.protein).toFixed(1)}g de Proteína para alcanzar tu meta de esta comida (${dietTargetProtein.toFixed(0)}g).`
+      });
+    } else if (macros.protein > dietTargetProtein * 1.1) {
+      warnings.push({
+        type: "danger",
+        text: `Te estás excediendo por ${(macros.protein - dietTargetProtein).toFixed(1)}g de Proteína en esta comida (${dietTargetProtein.toFixed(0)}g meta).`
+      });
+    }
 
-  // Carbs
-  if (macros.carbs < dietTargetCarbs * 0.9) {
-    warnings.push({
-      type: "warning",
-      text: `Te faltan ${(dietTargetCarbs - macros.carbs).toFixed(1)}g de Carbohidratos para tu meta (${dietTargetCarbs.toFixed(0)}g meta).`
-    });
-  } else if (macros.carbs > dietTargetCarbs * 1.1) {
-    warnings.push({
-      type: "danger",
-      text: `Te excedes por ${(macros.carbs - dietTargetCarbs).toFixed(1)}g de Carbohidratos (${dietTargetCarbs.toFixed(0)}g meta).`
-    });
-  } else {
-    warnings.push({
-      type: "success",
-      text: `Carbohidratos ideales: ¡Excelente control (${macros.carbs}g / ${dietTargetCarbs.toFixed(0)}g)!`
-    });
-  }
+    // Carbs
+    if (macros.carbs < dietTargetCarbs * 0.9) {
+      warnings.push({
+        type: "warning",
+        text: `Te faltan ${(dietTargetCarbs - macros.carbs).toFixed(1)}g de Carbohidratos para tu meta (${dietTargetCarbs.toFixed(0)}g meta).`
+      });
+    } else if (macros.carbs > dietTargetCarbs * 1.1) {
+      warnings.push({
+        type: "danger",
+        text: `Te excedes por ${(macros.carbs - dietTargetCarbs).toFixed(1)}g de Carbohidratos (${dietTargetCarbs.toFixed(0)}g meta).`
+      });
+    }
 
-  // Fat
-  if (macros.fats < dietTargetFat * 0.9) {
-    warnings.push({
-      type: "warning",
-      text: `Te faltan ${(dietTargetFat - macros.fats).toFixed(1)}g de Grasas saludables para tu meta (${dietTargetFat.toFixed(0)}g meta).`
-    });
-  } else if (macros.fats > dietTargetFat * 1.1) {
-    warnings.push({
-      type: "danger",
-      text: `Te excedes por ${(macros.fats - dietTargetFat).toFixed(1)}g de Grasas en esta comida (${dietTargetFat.toFixed(0)}g meta).`
-    });
-  } else {
-    warnings.push({
-      type: "success",
-      text: `Grasas ideales: Aporte adecuado de lípidos (${macros.fats}g / ${dietTargetFat.toFixed(0)}g).`
-    });
-  }
+    // Fat
+    if (macros.fats < dietTargetFat * 0.9) {
+      warnings.push({
+        type: "warning",
+        text: `Te faltan ${(dietTargetFat - macros.fats).toFixed(1)}g de Grasas saludables para tu meta (${dietTargetFat.toFixed(0)}g meta).`
+      });
+    } else if (macros.fats > dietTargetFat * 1.1) {
+      warnings.push({
+        type: "danger",
+        text: `Te excedes por ${(macros.fats - dietTargetFat).toFixed(1)}g de Grasas en esta comida (${dietTargetFat.toFixed(0)}g meta).`
+      });
+    }
 
-  // Kcal
-  if (macros.kcal < dietTargetKcal * 0.9) {
-    warnings.push({
-      type: "warning",
-      text: `Esta comida aporta pocas calorías: ${macros.kcal} kcal (meta: ${dietTargetKcal.toFixed(0)} kcal).`
-    });
-  } else if (macros.kcal > dietTargetKcal * 1.1) {
-    warnings.push({
-      type: "danger",
-      text: `Esta comida excede tus requerimientos calóricos: ${macros.kcal} kcal (meta: ${dietTargetKcal.toFixed(0)} kcal).`
-    });
+    // Kcal
+    if (macros.kcal < dietTargetKcal * 0.9) {
+      warnings.push({
+        type: "warning",
+        text: `Esta comida aporta pocas calorías: ${macros.kcal} kcal (meta: ${dietTargetKcal.toFixed(0)} kcal).`
+      });
+    } else if (macros.kcal > dietTargetKcal * 1.1) {
+      warnings.push({
+        type: "danger",
+        text: `Esta comida excede tus requerimientos calóricos: ${macros.kcal} kcal (meta: ${dietTargetKcal.toFixed(0)} kcal).`
+      });
+    }
   }
 
   const handleSliderChange = useCallback((ingredientId, newGrams) => {
@@ -365,11 +432,11 @@ export default function CustomDishScreen() {
 
   // Autofill macros from the active nutritional plan
   const handleLoadPlanMacros = () => {
-    if (!nutritionalPlan) return;
-    const divisor = nutritionalPlan.periodType === "day" ? 3 : 1;
-    setTargetProtein(Math.round(nutritionalPlan.proteinLimit / divisor).toString());
-    setTargetCarbs(Math.round(nutritionalPlan.carbLimit / divisor).toString());
-    setTargetFat(Math.round(nutritionalPlan.fatLimit / divisor).toString());
+    if (!activePlan) return;
+    const divisor = activePlan.periodType === "day" ? 3 : 1;
+    setTargetProtein(Math.round(activePlan.proteinLimit / divisor).toString());
+    setTargetCarbs(Math.round(activePlan.carbLimit / divisor).toString());
+    setTargetFat(Math.round(activePlan.fatLimit / divisor).toString());
   };
 
   // Solve portion weights mathematically to match target macros
@@ -592,24 +659,39 @@ export default function CustomDishScreen() {
           </div>
 
           {/* ── ALINEACIÓN CON LA DIETA (REAL-TIME ALERTS) ── */}
-          <div style={styles.dietAlertCard}>
-            <div style={styles.dietAlertHeader}>
-              <span>{statusLabel}</span>
-              <span style={styles.dietPill}>Alineación de Macros</span>
-            </div>
-            <div style={styles.dietAlertContent}>
-              {warnings.map((w, idx) => {
-                const color = w.type === "success" ? "#34D399" : w.type === "warning" ? "#F59E0B" : "#EF4444";
-                const icon = w.type === "success" ? "✅" : w.type === "warning" ? "⚠️" : "🚨";
-                return (
-                  <div key={idx} style={{ ...styles.warningItem, borderLeft: `4px solid ${color}`, display: 'flex', alignItems: 'center' }}>
-                    <span style={{ marginRight: 8 }}>{icon}</span>
-                    <span style={{ fontSize: 13, color: '#E2E8F0', lineHeight: '1.4' }}>{w.text}</span>
+          {activePlan && (
+            <div style={styles.dietAlertCard}>
+              <div style={styles.dietAlertHeader}>
+                <span>{statusLabel}</span>
+                <span style={{
+                  ...styles.dietPill,
+                  backgroundColor: warnings.length === 0 ? "rgba(52, 211, 153, 0.1)" : "rgba(249, 115, 22, 0.1)",
+                  color: warnings.length === 0 ? "#34D399" : "#F97316"
+                }}>
+                  {warnings.length === 0 ? "Alineado ✅" : "Desviaciones ⚠️"}
+                </span>
+              </div>
+              <div style={styles.dietAlertContent}>
+                {warnings.length === 0 ? (
+                  <div style={{ ...styles.warningItem, borderLeft: '4px solid #34D399', display: 'flex', alignItems: 'center' }}>
+                    <span style={{ marginRight: 8 }}>🎉</span>
+                    <span style={{ fontSize: 13, color: '#E2E8F0', lineHeight: '1.4' }}>¡Tu personalización cumple al 100% con los macros recomendados por tu nutriólogo!</span>
                   </div>
-                );
-              })}
+                ) : (
+                  warnings.map((w, idx) => {
+                    const color = w.type === "warning" ? "#F59E0B" : "#EF4444";
+                    const icon = w.type === "warning" ? "⚠️" : "🚨";
+                    return (
+                      <div key={idx} style={{ ...styles.warningItem, borderLeft: `4px solid ${color}`, display: 'flex', alignItems: 'center' }}>
+                        <span style={{ marginRight: 8 }}>{icon}</span>
+                        <span style={{ fontSize: 13, color: '#E2E8F0', lineHeight: '1.4' }}>{w.text}</span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* ── ADJUST PORTIONS BY TARGET MACROS (NUTRITIONAL PLAN ALIGNED) ── */}
           <div style={styles.adjustSection}>
@@ -627,15 +709,7 @@ export default function CustomDishScreen() {
                   Calcula de forma automática los gramos de ingredientes necesarios para alcanzar los macros que tú o tu nutriólogo decidan.
                 </p>
 
-                {nutritionalPlan && (
-                  <button 
-                    type="button" 
-                    onClick={handleLoadPlanMacros}
-                    style={styles.loadPlanBtn}
-                  >
-                    🩺 Cargar del Plan ({Math.round(nutritionalPlan.proteinLimit / (nutritionalPlan.periodType === 'day' ? 3 : 1))}g P, {Math.round(nutritionalPlan.carbLimit / (nutritionalPlan.periodType === 'day' ? 3 : 1))}g C)
-                  </button>
-                )}
+
 
                 {/* Portions equivalents selector */}
                 <div style={styles.portionsCard}>
@@ -882,7 +956,7 @@ export default function CustomDishScreen() {
           </div>
 
           {/* Espaciado inferior para móvil */}
-          <div style={{ height: 60 }} />
+          <div style={{ height: 180 }} />
 
           {/* Estilos globales del slider nativo */}
           <style>{`
@@ -1433,7 +1507,8 @@ const styles = {
     cursor: "pointer",
   },
   macroFormRow: {
-    display: "flex",
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
     gap: 10,
   },
   macroFormGroup: {

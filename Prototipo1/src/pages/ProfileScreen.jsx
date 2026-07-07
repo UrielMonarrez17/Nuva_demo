@@ -29,30 +29,9 @@ export default function ProfileScreen() {
   } = useApp();
   
   const history = useHistory();
-  const [showRestModal, setShowRestModal] = useState(false);
-  const [pendingRequests, setPendingRequests] = useState([]);
+  const [showVerifModal, setShowVerifModal] = useState(false);
+  const [pendingNutriologists, setPendingNutriologists] = useState([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
-  
-  // Form states
-  const [restName, setRestName] = useState("");
-  const [restAddress, setRestAddress] = useState("");
-  const [restLat, setRestLat] = useState("19.4326");
-  const [restLng, setRestLng] = useState("-99.1332");
-  const [restImage, setRestImage] = useState("");
-  const [restRating, setRestRating] = useState("4.8");
-  const [restDeliveryTime, setRestDeliveryTime] = useState("20-30 min");
-  const [loadingRest, setLoadingRest] = useState(false);
-
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setRestImage(reader.result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
   const handleLogout = async () => {
     if (window.confirm("¿Seguro que deseas cerrar tu sesión?")) {
@@ -70,48 +49,30 @@ export default function ProfileScreen() {
     
     const q = query(
       collection(db, "users"),
-      where("role", "==", "restaurant"),
-      where("status", "==", "pending_verification")
+      where("role", "==", "nutriologist"),
+      where("status", "==", "pending")
     );
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setPendingRequests(list);
+      setPendingNutriologists(list);
     });
     
     return () => unsubscribe();
   }, [isAdmin]);
 
-  const handleApproveRestaurant = async (req) => {
-    if (window.confirm(`¿Confirmas que deseas aprobar el restaurante "${req.restaurantName}" y habilitarlo para operar?`)) {
+  const handleApproveNutriologist = async (nutri) => {
+    if (window.confirm(`¿Confirmas que deseas aprobar al nutriólogo "${nutri.name}" con cédula "${nutri.professionalLicense}"?`)) {
       try {
         setLoadingRequests(true);
-        
-        // 1. Create a document in restaurants collection
-        const newRest = {
-          name: req.restaurantName,
-          address: req.address,
-          lat: parseFloat(req.lat) || 19.4326,
-          lng: parseFloat(req.lng) || -99.1332,
-          imageUrl: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=500&q=80",
-          rating: 4.5,
-          deliveryTime: "25-35 min",
-          createdAt: new Date().toISOString()
-        };
-        const restRef = await addDoc(collection(db, "restaurants"), newRest);
-        
-        // 2. Update the user document to verified and set restaurantId
-        const userRef = doc(db, "users", req.id);
+        const userRef = doc(db, "users", nutri.id);
         await updateDoc(userRef, {
-          status: "verified",
-          restaurantId: restRef.id,
-          restaurantName: req.restaurantName
+          status: "verified"
         });
-        
-        alert("¡Restaurante aprobado con éxito! Se ha generado su ID de cocina y habilitado su cuenta.");
+        alert("¡Nutriólogo aprobado y verificado con éxito!");
       } catch (e) {
         console.error(e);
-        alert("Ocurrió un error al aprobar el restaurante.");
+        alert("Ocurrió un error al aprobar al nutriólogo.");
       } finally {
         setLoadingRequests(false);
       }
@@ -249,176 +210,73 @@ export default function ProfileScreen() {
                <h3 style={styles.sectionTitle}>Panel de Administrador</h3>
                <p style={styles.sectionDesc}>Funciones de administración global de la plataforma.</p>
                
-               <div style={{ ...styles.menuItem, marginBottom: 16 }} onClick={() => setShowRestModal(true)}>
+               <div style={{ ...styles.menuItem, marginBottom: 16 }} onClick={() => setShowVerifModal(true)}>
                  <div style={styles.menuItemLeft}>
-                   <div style={{...styles.iconWrapper, backgroundColor: "rgba(52, 211, 153, 0.1)", color: "#34D399"}}>
-                     🏢
+                   <div style={{...styles.iconWrapper, backgroundColor: "rgba(167, 139, 250, 0.1)", color: "#A78BFA"}}>
+                     🩺
                    </div>
-                   <span>Registrar Nuevo Restaurante Manual</span>
+                   <span>Verificar Cédulas de Nutriólogos</span>
                  </div>
+                 {pendingNutriologists.length > 0 && (
+                   <span style={{
+                     backgroundColor: "#EF4444",
+                     color: "#FFF",
+                     fontSize: 10,
+                     fontWeight: 700,
+                     borderRadius: "50%",
+                     width: 20,
+                     height: 20,
+                     display: "flex",
+                     alignItems: "center",
+                     justifyContent: "center",
+                     marginRight: 8
+                   }}>{pendingNutriologists.length}</span>
+                 )}
                  <IonIcon icon={chevronForwardOutline} style={styles.chevron} />
                </div>
-
-               {/* Pending Requests Queue */}
-               <h4 style={{ ...styles.sectionTitle, fontSize: 13, marginTop: 20, color: '#F97316' }}>Postulaciones de Restaurantes</h4>
-               {pendingRequests.length === 0 ? (
-                 <p style={{ ...styles.sectionDesc, fontStyle: 'italic' }}>No hay solicitudes de restaurante pendientes por verificar.</p>
-               ) : (
-                 <div style={styles.requestsContainer}>
-                   {pendingRequests.map(req => (
-                     <div key={req.id} style={styles.requestCard}>
-                       <div style={{ textAlign: 'left' }}>
-                         <strong style={styles.reqName}>{req.restaurantName}</strong>
-                         <span style={styles.reqDetail}>Encargado: {req.name} ({req.email})</span>
-                         <span style={styles.reqDetail}>Dirección: {req.address}</span>
-                         <span style={styles.reqDetail}>Coordenadas: {req.lat}, {req.lng}</span>
-                       </div>
-                       <button
-                         type="button"
-                         onClick={() => handleApproveRestaurant(req)}
-                         disabled={loadingRequests}
-                         style={styles.approveBtn}
-                       >
-                         {loadingRequests ? "Procesando..." : "Aprobar y Vincular Cocina 🏢"}
-                       </button>
-                     </div>
-                   ))}
-                 </div>
-               )}
              </div>
            )}
 
-          {/* Register Restaurant Modal */}
-          {showRestModal && (
-            <div style={styles.modalOverlay}>
-              <div style={styles.modalCard}>
-                <div style={styles.modalHeader}>
-                  <h3 style={styles.modalTitle}>Registrar Restaurante</h3>
-                  <button style={styles.closeBtn} onClick={() => {
-                    if (window.confirm("¿Seguro que deseas salir? Los cambios no guardados se perderán.")) {
-                      setShowRestModal(false);
-                    }
-                  }}>✕</button>
-                </div>
+           {/* Verify Nutriologist Licenses Modal */}
+           {showVerifModal && (
+             <div style={styles.modalOverlay}>
+               <div style={styles.modalCard}>
+                 <div style={styles.modalHeader}>
+                   <h3 style={styles.modalTitle}>Verificar Nutriólogos</h3>
+                   <button style={styles.closeBtn} onClick={() => setShowVerifModal(false)}>✕</button>
+                 </div>
 
-                <form onSubmit={async (e) => {
-                  e.preventDefault();
-                  if (!restName || !restAddress) {
-                    alert("Por favor completa los campos obligatorios.");
-                    return;
-                  }
-                  if (window.confirm("¿Confirmas que deseas registrar este restaurante?")) {
-                    setLoadingRest(true);
-                    const res = await registerRestaurant(restName, restAddress, restLat, restLng, restImage, restRating, restDeliveryTime);
-                    setLoadingRest(false);
-                    if (res.success) {
-                      alert("¡Restaurante registrado con éxito!");
-                      setRestName("");
-                      setRestAddress("");
-                      setRestImage("");
-                      setShowRestModal(false);
-                    } else {
-                      alert("Error al registrar restaurante.");
-                    }
-                  }
-                }} style={styles.modalForm}>
-                  
-                  <div style={styles.formGroup}>
-                    <label style={styles.formLabel}>Nombre del Restaurante</label>
-                    <input
-                      type="text"
-                      placeholder="Ej. Katsu Healthy Bowls"
-                      value={restName}
-                      onChange={(e) => setRestName(e.target.value)}
-                      style={styles.formInput}
-                      required
-                    />
-                  </div>
-
-                  <div style={styles.formGroup}>
-                    <label style={styles.formLabel}>Ubicación en Mapa (Consigue ubicación en tiempo real)</label>
-                    <MapPicker
-                      onConfirm={(loc) => {
-                        setRestLat(loc.lat.toString());
-                        setRestLng(loc.lng.toString());
-                        setRestAddress(loc.address);
-                      }}
-                    />
-                  </div>
-
-                  <div style={styles.formGroup}>
-                    <label style={styles.formLabel}>Dirección física (Confirmada en mapa)</label>
-                    <input
-                      type="text"
-                      placeholder="Haz click en el mapa para obtener la dirección"
-                      value={restAddress}
-                      onChange={(e) => setRestAddress(e.target.value)}
-                      style={styles.formInput}
-                      required
-                    />
-                  </div>
-
-                  <div style={styles.formGroup}>
-                    <label style={styles.formLabel}>Imagen de Portada (Sube desde ordenador o ingresa URL)</label>
-                    <div style={styles.row}>
-                      <input
-                        type="text"
-                        placeholder="https://images.unsplash.com/..."
-                        value={restImage.startsWith("data:") ? "Imagen cargada localmente" : restImage}
-                        onChange={(e) => setRestImage(e.target.value)}
-                        style={{ ...styles.formInput, flex: 1 }}
-                        disabled={restImage.startsWith("data:")}
-                      />
-                      <label htmlFor="rest-image-upload" style={styles.uploadBtn}>
-                        📁 Subir
-                      </label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        id="rest-image-upload"
-                        onChange={handleFileChange}
-                        style={{ display: "none" }}
-                      />
-                    </div>
-                    {restImage && (
-                      <div style={styles.imagePreviewContainer}>
-                        <img src={restImage} alt="Preview" style={styles.imagePreview} />
-                        <button type="button" onClick={() => setRestImage("")} style={styles.clearImageBtn}>
-                          ✕ Quitar
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={styles.row}>
-                    <div style={{ ...styles.formGroup, flex: 1 }}>
-                      <label style={styles.formLabel}>Calificación inicial</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={restRating}
-                        onChange={(e) => setRestRating(e.target.value)}
-                        style={styles.formInput}
-                      />
-                    </div>
-                    <div style={{ ...styles.formGroup, flex: 1 }}>
-                      <label style={styles.formLabel}>Tiempo promedio</label>
-                      <input
-                        type="text"
-                        value={restDeliveryTime}
-                        onChange={(e) => setRestDeliveryTime(e.target.value)}
-                        style={styles.formInput}
-                      />
-                    </div>
-                  </div>
-
-                  <button type="submit" style={styles.modalSubmitBtn} disabled={loadingRest}>
-                    {loadingRest ? "Registrando..." : "Registrar Restaurante"}
-                  </button>
-                </form>
-              </div>
-            </div>
-          )}
+                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '10px' }}>
+                   {pendingNutriologists.length === 0 ? (
+                     <p style={{ ...styles.sectionDesc, fontStyle: 'italic', textAlign: 'center', margin: '20px 0' }}>
+                       No hay nutriólogos pendientes de verificación de cédula.
+                     </p>
+                   ) : (
+                     <div style={styles.requestsContainer}>
+                       {pendingNutriologists.map(nutri => (
+                         <div key={nutri.id} style={styles.requestCard}>
+                           <div style={{ textAlign: 'left' }}>
+                             <strong style={styles.reqName}>{nutri.name}</strong>
+                             <span style={styles.reqDetail}>Email: {nutri.email}</span>
+                             <span style={styles.reqDetail}>Cédula Profesional: <strong style={{ color: '#F97316' }}>{nutri.professionalLicense}</strong></span>
+                             <span style={styles.reqDetail}>Teléfono: {nutri.contactPhone || 'No registrado'}</span>
+                           </div>
+                           <button
+                             type="button"
+                             onClick={() => handleApproveNutriologist(nutri)}
+                             disabled={loadingRequests}
+                             style={styles.approveBtn}
+                           >
+                             {loadingRequests ? "Procesando..." : "Aprobar y Verificar Cédula 🩺"}
+                           </button>
+                         </div>
+                       ))}
+                     </div>
+                   )}
+                 </div>
+               </div>
+             </div>
+           )}
 
           {/* Bottom navigation padding */}
           <div style={{ height: "calc(100px + env(safe-area-inset-bottom))" }} />

@@ -275,12 +275,13 @@ export function AppProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState(null);
   
   // App state
   const [cart, setCart] = useState([]);
-  const [recipes, setRecipes] = useState(MOCK_RECIPES);
-  const [restaurants, setRestaurants] = useState(MOCK_RESTAURANTS);
-  const [ingredients, setIngredients] = useState(MOCK_INGREDIENTS);
+  const [recipes, setRecipes] = useState([]);
+  const [restaurants, setRestaurants] = useState([]);
+  const [ingredients, setIngredients] = useState([]);
   const [patients, setPatients] = useState([]);
   const [prescriptions, setPrescriptions] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -305,6 +306,27 @@ export function AppProvider({ children }) {
     return /(android|iphone|ipad|ipod)/i.test(ua);
   };
 
+  // Helper to link user with nutriologist if they were pre-added as patient
+  const linkNutriologistIfRegistered = async (email) => {
+    try {
+      const patientsRef = collection(db, "patients");
+      const q = query(patientsRef, where("patientEmail", "==", email.toLowerCase().trim()));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const relations = snap.docs.map(doc => doc.data());
+        relations.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        const relation = relations[0];
+        return {
+          nutriologistId: relation.nutriologistId,
+          nutriologistName: relation.nutriologistName
+        };
+      }
+    } catch (e) {
+      console.warn("Failed to check pre-registered nutriologist relation:", e);
+    }
+    return null;
+  };
+
   // Handle Firebase Auth
   useEffect(() => {
     // Initialize Capawesome Google Sign-In on Native
@@ -323,30 +345,59 @@ export function AppProvider({ children }) {
         const userDocRef = doc(db, "users", user.uid);
         const userSnap = await getDoc(userDocRef);
         if (!userSnap.exists()) {
+          // Retrieve the saved signup state from localStorage
+          const savedRole = localStorage.getItem("google_signup_role") || "client";
+          let savedInfo = {};
+          try {
+            const rawInfo = localStorage.getItem("google_signup_info");
+            if (rawInfo) savedInfo = JSON.parse(rawInfo);
+          } catch (e) {
+            console.error("Failed to parse saved signup info:", e);
+          }
+
+          const linkData = await linkNutriologistIfRegistered(user.email);
           const profile = {
             name: user.displayName || user.email.split("@")[0],
             email: user.email,
-            role: "client",
+            role: savedRole,
             photoURL: user.photoURL || null,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            ...(linkData || {})
           };
+
+          if (savedRole === "nutriologist") {
+            profile.status = "pending";
+            profile.professionalLicense = savedInfo.license || "";
+            profile.contactPhone = savedInfo.phone || "";
+          } else if (savedRole === "restaurant") {
+            profile.status = "pending";
+            profile.restaurantName = savedInfo.restaurantName || "";
+            profile.restaurantAddress = savedInfo.restaurantAddress || "";
+            profile.restaurantLat = savedInfo.restaurantLat || "";
+            profile.restaurantLng = savedInfo.restaurantLng || "";
+          }
+
           await setDoc(userDocRef, profile);
         }
-        // onAuthStateChanged will pick up the user and set state
+        
+        // Clear state from localStorage
+        localStorage.removeItem("google_signup_role");
+        localStorage.removeItem("google_signup_info");
       }
     }).catch((err) => {
-      // Ignore errors here — they are handled in loginWithGoogle
       console.warn("getRedirectResult error (non-fatal):", err.code, err.message);
     });
 
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setLoading(true);
+    let unsubUserProfile;
+
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         setCurrentUser(user);
-        // Get user profile from Firestore
-        try {
-          const userDocRef = doc(db, "users", user.uid);
-          const userSnap = await getDoc(userDocRef);
+        
+        // Listen to the user's profile document in real-time
+        const userDocRef = doc(db, "users", user.uid);
+        unsubUserProfile = onSnapshot(userDocRef, (userSnap) => {
+          setLoading(true);
           if (userSnap.exists()) {
             const profile = userSnap.data();
             setUserProfile({ uid: user.uid, ...profile });
@@ -366,26 +417,28 @@ export function AppProvider({ children }) {
             setUserProfile(defaultProfile);
             setActiveRole("client");
           }
-        } catch (error) {
-          console.error("Firestore user fetch failed, using fallback:", error);
-          const defaultProfile = {
-            uid: user.uid,
-            name: user.email.split("@")[0],
-            email: user.email,
-            role: "client"
-          };
-          setUserProfile(defaultProfile);
-          setActiveRole("client");
-        }
+          setLoading(false);
+        }, (error) => {
+          console.error("Firestore user profile listener failed:", error);
+          setLoading(false);
+        });
       } else {
+        if (unsubUserProfile) {
+          unsubUserProfile();
+        }
         setCurrentUser(null);
         setUserProfile(null);
         setActiveRole("client");
+        setLoading(false);
       }
-      setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (unsubUserProfile) {
+        unsubUserProfile();
+      }
+    };
   }, []);
 
   // Sync real-time data from Firebase Firestore
@@ -444,21 +497,30 @@ export function AppProvider({ children }) {
 
           setRecipes(rList);
         }
-      }, err => console.log("Firebase recipes listen error, using mock:", err));
+      }, err => {
+        console.log("Firebase recipes listen error:", err);
+        setErrorMsg("Error al leer base_recipes. Verifica reglas de Firestore.");
+      });
 
       unsubIngredients = onSnapshot(collection(db, "ingredients"), (snapshot) => {
         if (!snapshot.empty) {
           const iList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           setIngredients(iList);
         }
-      }, err => console.log("Firebase ingredients listen error, using mock:", err));
+      }, err => {
+        console.log("Firebase ingredients listen error:", err);
+        setErrorMsg("Error al leer ingredients. Verifica reglas de Firestore.");
+      });
 
       unsubRestaurants = onSnapshot(collection(db, "restaurants"), (snapshot) => {
         if (!snapshot.empty) {
           const rList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           setRestaurants(rList);
         }
-      }, err => console.log("Firebase restaurants listen error, using mock:", err));
+      }, err => {
+        console.log("Firebase restaurants listen error:", err);
+        setErrorMsg("Error al leer restaurants. Verifica reglas de Firestore.");
+      });
 
       // 2. Sync orders for this user
       const ordersQuery = query(collection(db, "orders"), where("userId", "==", currentUser.uid));
@@ -538,7 +600,7 @@ export function AppProvider({ children }) {
   };
 
   // Login with Google
-  const loginWithGoogle = async () => {
+  const loginWithGoogle = async (selectedRole = "client", additionalInfo = {}) => {
     setLoading(true);
     try {
       if (Capacitor.isNativePlatform()) {
@@ -557,16 +619,31 @@ export function AppProvider({ children }) {
           const userSnap = await getDoc(userDocRef);
 
           if (!userSnap.exists()) {
+            const linkData = await linkNutriologistIfRegistered(user.email);
             const profile = {
               name: user.displayName || user.email.split("@")[0],
               email: user.email,
-              role: "client",
+              role: selectedRole,
               photoURL: user.photoURL || null,
-              createdAt: new Date().toISOString()
+              createdAt: new Date().toISOString(),
+              ...(linkData || {})
             };
+
+            if (selectedRole === "nutriologist") {
+              profile.status = "pending";
+              profile.professionalLicense = additionalInfo.license || "";
+              profile.contactPhone = additionalInfo.phone || "";
+            } else if (selectedRole === "restaurant") {
+              profile.status = "pending";
+              profile.restaurantName = additionalInfo.restaurantName || "";
+              profile.restaurantAddress = additionalInfo.restaurantAddress || "";
+              profile.restaurantLat = additionalInfo.restaurantLat || "";
+              profile.restaurantLng = additionalInfo.restaurantLng || "";
+            }
+
             await setDoc(userDocRef, profile);
             setUserProfile({ uid: user.uid, ...profile });
-            setActiveRole("client");
+            setActiveRole(selectedRole);
           }
           setLoading(false);
           return { success: true };
@@ -589,6 +666,9 @@ export function AppProvider({ children }) {
         // signInWithRedirect is the correct approach: it navigates the whole app
         // to Google's auth page, then back. The result is handled in useEffect
         // via getRedirectResult() above.
+        localStorage.setItem("google_signup_role", selectedRole);
+        localStorage.setItem("google_signup_info", JSON.stringify(additionalInfo));
+        
         await signInWithRedirect(auth, provider);
         // Page will reload after redirect — no return value needed
         return { success: true };
@@ -603,17 +683,31 @@ export function AppProvider({ children }) {
       const userSnap = await getDoc(userDocRef);
 
       if (!userSnap.exists()) {
-        // First-time Google login: create a client profile
+        const linkData = await linkNutriologistIfRegistered(user.email);
         const profile = {
           name: user.displayName || user.email.split("@")[0],
           email: user.email,
-          role: "client",
+          role: selectedRole,
           photoURL: user.photoURL || null,
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          ...(linkData || {})
         };
+
+        if (selectedRole === "nutriologist") {
+          profile.status = "pending";
+          profile.professionalLicense = additionalInfo.license || "";
+          profile.contactPhone = additionalInfo.phone || "";
+        } else if (selectedRole === "restaurant") {
+          profile.status = "pending";
+          profile.restaurantName = additionalInfo.restaurantName || "";
+          profile.restaurantAddress = additionalInfo.restaurantAddress || "";
+          profile.restaurantLat = additionalInfo.restaurantLat || "";
+          profile.restaurantLng = additionalInfo.restaurantLng || "";
+        }
+
         await setDoc(userDocRef, profile);
         setUserProfile({ uid: user.uid, ...profile });
-        setActiveRole("client");
+        setActiveRole(selectedRole);
       }
       // If profile exists, onAuthStateChanged will handle it
 
@@ -631,6 +725,7 @@ export function AppProvider({ children }) {
     }
   };
 
+
   // Register Client
   const registerClient = async (name, email, password) => {
     setLoading(true);
@@ -638,11 +733,13 @@ export function AppProvider({ children }) {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       
+      const linkData = await linkNutriologistIfRegistered(email);
       const profile = {
         name,
         email,
         role: "client",
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        ...(linkData || {})
       };
       
       // Store in Firestore
@@ -818,6 +915,23 @@ export function AppProvider({ children }) {
     try {
       const docRef = await addDoc(collection(db, "patients"), newPatient);
       setPatients(prev => [{ id: docRef.id, ...newPatient }, ...prev]);
+
+      // Query and link existing user
+      try {
+        const usersRef = collection(db, "users");
+        const userQ = query(usersRef, where("email", "==", email.toLowerCase().trim()));
+        const userSnap = await getDocs(userQ);
+        if (!userSnap.empty) {
+          const userDoc = userSnap.docs[0];
+          await updateDoc(doc(db, "users", userDoc.id), {
+            nutriologistId: currentUser.uid,
+            nutriologistName: userProfile?.name || "Nutriólogo Clínico"
+          });
+        }
+      } catch (userErr) {
+        console.warn("Failed to link patient's user profile with nutriologist:", userErr);
+      }
+
       return { success: true };
     } catch (e) {
       console.warn("Firestore add patient failed, saving locally:", e);
@@ -947,6 +1061,29 @@ export function AppProvider({ children }) {
 
     try {
       await addDoc(collection(db, "nutritional_plans"), newPlan);
+      
+      // Also update the targetMacros in the patient's user document
+      try {
+        const usersRef = collection(db, "users");
+        const userQ = query(usersRef, where("email", "==", patientEmail.toLowerCase().trim()));
+        const userSnap = await getDocs(userQ);
+        if (!userSnap.empty) {
+          const userDoc = userSnap.docs[0];
+          await updateDoc(doc(db, "users", userDoc.id), {
+            targetMacros: {
+              kcalLimit: parseFloat(kcalLimit) || 2000,
+              proteinLimit: parseFloat(proteinLimit) || 130,
+              carbLimit: parseFloat(carbLimit) || 220,
+              fatLimit: parseFloat(fatLimit) || 65,
+              periodType,
+              updatedAt: new Date().toISOString()
+            }
+          });
+        }
+      } catch (userErr) {
+        console.warn("Failed to update targetMacros on user document:", userErr);
+      }
+
       return { success: true };
     } catch (e) {
       console.error("Error creating plan:", e);

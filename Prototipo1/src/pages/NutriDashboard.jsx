@@ -191,41 +191,9 @@ export default function NutriDashboard() {
     }
   };
 
-  const handleGoogleCalendarSync = async () => {
-    if (!currentUser) return;
-    setSyncingGoogle(true);
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    const newSlots = [];
-    const times = ["09:00 AM", "11:00 AM", "03:00 PM", "05:00 PM"];
-    for (let i = 1; i <= 4; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() + i);
-      const dateString = d.toISOString().split("T")[0];
-      const timeString = times[i - 1];
-      newSlots.push({
-        nutriologistId: currentUser.uid,
-        nutriologistName: userProfile?.name || "Nutriólogo Clínico",
-        date: dateString,
-        time: timeString,
-        status: "available",
-        createdAt: new Date().toISOString(),
-        importedFrom: "Google Calendar"
-      });
-    }
-
-    try {
-      await Promise.all(
-        newSlots.map(slot => addDoc(collection(db, "appointment_slots"), slot))
-      );
-      alert("¡Sincronización exitosa! Se importaron 4 horarios libres desde tu Google Calendar.");
-      setShowSlotModal(false);
-    } catch (err) {
-      console.error(err);
-      alert("Error al sincronizar con Google Calendar.");
-    } finally {
-      setSyncingGoogle(false);
-    }
+  const handleGoogleCalendarSync = () => {
+    // Abre el sistema nativo de Google Calendar en el navegador o la aplicación
+    window.open("https://calendar.google.com/calendar/r/eventedit", "_blank");
   };
 
   const toggleBatchSlot = (date, time) => {
@@ -656,8 +624,8 @@ export default function NutriDashboard() {
                     </div>
                   </div>
 
-                  <div style={styles.row}>
-                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={styles.formGroup}>
                       <label style={styles.formLabel}>Fecha Inicio</label>
                       <input 
                         type="date" 
@@ -667,7 +635,7 @@ export default function NutriDashboard() {
                         required
                       />
                     </div>
-                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                    <div style={styles.formGroup}>
                       <label style={styles.formLabel}>Fecha Fin</label>
                       <input 
                         type="date" 
@@ -690,8 +658,8 @@ export default function NutriDashboard() {
                     />
                   </div>
 
-                  <div style={styles.row}>
-                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div style={styles.formGroup}>
                       <label style={styles.formLabel}>Proteína (g)</label>
                       <input 
                         type="number" 
@@ -701,7 +669,7 @@ export default function NutriDashboard() {
                         required
                       />
                     </div>
-                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                    <div style={styles.formGroup}>
                       <label style={styles.formLabel}>Carbos (g)</label>
                       <input 
                         type="number" 
@@ -711,7 +679,7 @@ export default function NutriDashboard() {
                         required
                       />
                     </div>
-                    <div style={{ ...styles.formGroup, flex: 1 }}>
+                    <div style={styles.formGroup}>
                       <label style={styles.formLabel}>Grasas (g)</label>
                       <input 
                         type="number" 
@@ -778,17 +746,16 @@ export default function NutriDashboard() {
                 {activeModalTab === "google" && (
                   <div style={styles.googleSyncBox}>
                     <div style={{ fontSize: 40, marginBottom: 8 }}>🗓️</div>
-                    <h4 style={{ margin: "0 0 4px 0", color: "#FFF", fontSize: 15 }}>Sincronizar con Google Calendar</h4>
+                    <h4 style={{ margin: "0 0 4px 0", color: "#FFF", fontSize: 15 }}>Agendar con Google Calendar</h4>
                     <p style={{ margin: "0 0 16px 0", color: "#94A3B8", fontSize: 12, lineHeight: 1.4 }}>
-                      Conecta tu cuenta para importar automáticamente bloques de disponibilidad libre desde tu calendario de Google.
+                      Serás redirigido a la aplicación oficial de Google Calendar para crear o administrar tus citas de manera nativa.
                     </p>
                     <button 
                       type="button"
                       onClick={handleGoogleCalendarSync} 
                       style={styles.googleBtn}
-                      disabled={syncingGoogle}
                     >
-                      {syncingGoogle ? "Sincronizando..." : "Sincronizar ahora"}
+                      Abrir Google Calendar
                     </button>
                   </div>
                 )}
@@ -1310,11 +1277,12 @@ const styles = {
     backgroundColor: "#131316",
     border: "1px solid #222227",
     borderRadius: 24,
-    padding: "24px",
+    padding: "24px 24px 100px 24px",
     width: "100%",
     maxWidth: 400,
-    maxHeight: "90vh",
+    maxHeight: "85vh",
     overflowY: "auto",
+    WebkitOverflowScrolling: "touch",
     boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
@@ -1474,15 +1442,18 @@ const styles = {
     outline: "none",
   },
   modalSubmitBtn: {
-    backgroundColor: "#A78BFA",
+    background: "linear-gradient(135deg, #A78BFA 0%, #C4B5FD 100%)",
     color: "#000000",
     border: "none",
     borderRadius: 12,
-    padding: "14px",
-    fontSize: 13,
-    fontWeight: 700,
+    padding: "16px",
+    fontSize: 16,
+    fontWeight: 800,
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
     cursor: "pointer",
-    marginTop: 6,
+    marginTop: 16,
+    boxShadow: "0 4px 14px rgba(167, 139, 250, 0.4)",
   },
   row: {
     display: "flex",
