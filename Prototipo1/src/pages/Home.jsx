@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { useApp } from "../context/AppContext";
 import { useHistory } from "react-router-dom";
 import { IonPage, IonContent, IonIcon } from "@ionic/react";
-import { searchOutline, flameOutline, timeOutline, closeCircleOutline, cartOutline } from "ionicons/icons";
+import { searchOutline, flameOutline, timeOutline, closeCircleOutline, cartOutline, receiptOutline } from "ionicons/icons";
 
 export default function Home() {
   const { 
@@ -17,7 +17,8 @@ export default function Home() {
     setPatientSelector, 
     prescriptions, 
     addToCart, 
-    redeemPrescription 
+    redeemPrescription,
+    cart 
   } = useApp();
   const history = useHistory();
 
@@ -104,9 +105,25 @@ export default function Home() {
               </h1>
             </div>
             
-            {/* Visual branding */}
-            <div style={styles.miniLogo}>
-              <span>n</span>
+            {/* Top right actions */}
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button 
+                onClick={() => history.push("/orders")}
+                style={styles.iconButton}
+                title="Mis Pedidos"
+              >
+                <IonIcon icon={receiptOutline} />
+              </button>
+              <button 
+                onClick={() => history.push("/cart")}
+                style={{ ...styles.iconButton, position: 'relative' }}
+                title="Carrito"
+              >
+                <IonIcon icon={cartOutline} />
+                {cart?.length > 0 && (
+                  <span style={styles.cartBadge}>{cart.length}</span>
+                )}
+              </button>
             </div>
           </div>
 
@@ -774,5 +791,34 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
     transition: "all 0.2s ease",
+  },
+  iconButton: {
+    width: "44px",
+    height: "44px",
+    borderRadius: "16px",
+    backgroundColor: "#1C1C1C",
+    color: "#F97316",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "22px",
+    border: "1px solid #2C2C2C",
+    cursor: "pointer",
+  },
+  cartBadge: {
+    position: "absolute",
+    top: "-4px",
+    right: "-4px",
+    backgroundColor: "#F97316",
+    color: "white",
+    fontSize: "10px",
+    fontWeight: "bold",
+    minWidth: "18px",
+    height: "18px",
+    borderRadius: "9px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 4px",
   }
 };

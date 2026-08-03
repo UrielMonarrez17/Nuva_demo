@@ -1,19 +1,20 @@
 // src/pages/CartScreen.jsx
-
-import React, { useState } from "react";
+import React, { useState, lazy, Suspense } from "react";
 import { useApp } from "../context/AppContext";
 import { useHistory } from "react-router-dom";
-import { IonPage, IonContent, IonIcon, IonSpinner, IonModal } from "@ionic/react";
-import { 
-  trashOutline, 
-  locationOutline, 
-  timeOutline, 
-  cardOutline,
+import { IonPage, IonContent, IonIcon, IonSpinner } from "@ionic/react";
+import {
+  trashOutline,
+  locationOutline,
+  timeOutline,
   checkmarkCircleOutline,
   chevronForwardOutline,
-  addOutline
+  addOutline,
+  arrowBackOutline,
 } from "ionicons/icons";
-import MapPicker from "../components/MapPicker";
+
+// Lazy-load the map so it only runs when the modal opens
+const MapPicker = lazy(() => import("../components/MapPicker"));
 
 export default function CartScreen() {
   const { cart, removeFromCart, placeOrder, addresses, selectAddress, addAddress, recipes, restaurants } = useApp();
@@ -21,11 +22,7 @@ export default function CartScreen() {
 
   const [loadingCheckout, setLoadingCheckout] = useState(false);
   const [successOrderInfo, setSuccessOrderInfo] = useState(null);
-  
-  // Payment Method Selection
-  const [paymentMethod, setPaymentMethod] = useState("card"); // "card" | "cash" | "applepay"
-
-  // Address drawer/modal state
+  const [paymentMethod, setPaymentMethod] = useState("card");
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [newStreet, setNewStreet] = useState("");
   const [newColonia, setNewColonia] = useState("");
@@ -36,68 +33,61 @@ export default function CartScreen() {
     setShowAddressModal(false);
   };
 
-  const activeAddress = addresses.find(a => a.active) || addresses[0];
+  const activeAddress = (addresses || []).find(a => a.active) || (addresses || [])[0];
 
-  const subtotal = cart.reduce((acc, item) => acc + item.finalPrice, 0);
+  const subtotal = (cart || []).reduce((acc, item) => acc + (item?.finalPrice || 0), 0);
   const shipping = subtotal > 0 ? 35 : 0;
   const total = subtotal + shipping;
 
-  const totalProtein = cart.reduce((acc, item) => acc + item.macros.protein, 0);
-  const totalCarbs = cart.reduce((acc, item) => acc + item.macros.carbs, 0);
-  const totalFats = cart.reduce((acc, item) => acc + item.macros.fats, 0);
-  const totalKcal = cart.reduce((acc, item) => acc + item.macros.kcal, 0);
+  const totalProtein = (cart || []).reduce((acc, item) => acc + (item?.macros?.protein || 0), 0);
+  const totalCarbs = (cart || []).reduce((acc, item) => acc + (item?.macros?.carbs || 0), 0);
+  const totalFats = (cart || []).reduce((acc, item) => acc + (item?.macros?.fats || 0), 0);
+  const totalKcal = (cart || []).reduce((acc, item) => acc + (item?.macros?.kcal || 0), 0);
 
-  // Extract coordinates from street string (format: Lat: X.XXX, Lng: Y.YYY · Details)
   const getCoordinates = (street) => {
     if (!street) return null;
     const match = street.match(/Lat:\s*([-\d.]+),\s*Lng:\s*([-\d.]+)/);
-    if (match) {
-      return { lat: parseFloat(match[1]), lng: parseFloat(match[2]) };
-    }
+    if (match) return { lat: parseFloat(match[1]), lng: parseFloat(match[2]) };
     return null;
   };
 
-  // Math distance calculation using Haversine formula
   const calculateDistance = (userCoords, restCoords) => {
-    if (!userCoords || !restCoords) return 3.2; // default mock distance in km if no map location
-    const R = 6371; // Earth radius in km
+    if (!userCoords || !restCoords) return 3.2;
+    const R = 6371;
     const dLat = (restCoords.lat - userCoords.lat) * Math.PI / 180;
     const dLng = (restCoords.lng - userCoords.lng) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(userCoords.lat * Math.PI / 180) * Math.cos(restCoords.lat * Math.PI / 180) * 
-      Math.sin(dLng/2) * Math.sin(dLng/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return parseFloat((R * c).toFixed(1));
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(userCoords.lat * Math.PI / 180) * Math.cos(restCoords.lat * Math.PI / 180) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return parseFloat((R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))).toFixed(1));
   };
 
-  // Find coordinates of restaurant for items in the cart
-  const firstCartItem = cart[0];
-  const cartRecipe = firstCartItem ? recipes.find(r => r.id === firstCartItem.recipeId) : null;
-  const cartRestaurant = cartRecipe ? restaurants.find(r => r.id === cartRecipe.restaurantId) : null;
+  const firstCartItem = cart?.[0];
+  const cartRecipe = firstCartItem ? (recipes || []).find(r => r.id === firstCartItem.recipeId) : null;
+  const cartRestaurant = cartRecipe ? (restaurants || []).find(r => r.id === cartRecipe.restaurantId) : null;
   const restCoords = cartRestaurant ? { lat: cartRestaurant.lat, lng: cartRestaurant.lng } : { lat: 19.414, lng: -99.171 };
-
   const userCoords = activeAddress ? getCoordinates(activeAddress.street) : null;
   const distance = activeAddress ? calculateDistance(userCoords, restCoords) : 3.2;
-  const estTime = Math.max(15, Math.round(15 + distance * 3.5)); // 15 mins base + 3.5 mins per km
+  const estTime = Math.max(15, Math.round(15 + distance * 3.5));
 
   const handleCheckout = async () => {
-    if (cart.length === 0) return;
+    if (!cart?.length) return;
     setLoadingCheckout(true);
-
-    const addressStr = activeAddress 
+    const addressStr = activeAddress
       ? `${activeAddress.street}, ${activeAddress.neighborhood}, ${activeAddress.city}`
       : "Dirección no especificada";
-
-    // Simulate cooking/sending delays
+    const methodLabel =
+      paymentMethod === "card" ? "Tarjeta de Crédito (Simulado)" :
+        paymentMethod === "cash" ? "Efectivo al recibir" : "Express Pay (Simulado)";
     setTimeout(async () => {
-      const methodLabel = 
-        paymentMethod === "card" ? "Tarjeta de Crédito (Simulado)" :
-        paymentMethod === "cash" ? "Efectivo al recibir" : "Apple Pay (Simulado)";
-      const res = await placeOrder(addressStr, methodLabel, distance, estTime);
-      setLoadingCheckout(false);
-      if (res.success) {
-        setSuccessOrderInfo(res.orderId);
+      try {
+        const res = await placeOrder(addressStr, methodLabel, distance, estTime);
+        if (res?.success) setSuccessOrderInfo(res.orderId);
+      } catch (e) {
+        console.error("Checkout error:", e);
+      } finally {
+        setLoadingCheckout(false);
       }
     }, 1500);
   };
@@ -111,39 +101,40 @@ export default function CartScreen() {
     setShowAddressModal(false);
   };
 
+  const cartIsEmpty = !cart || cart.length === 0;
+
   return (
     <IonPage>
       <IonContent scrollY={true}>
         <div style={styles.screen}>
-          
+
           {/* Header */}
           <div style={styles.header}>
-            <h1 style={styles.title}>Mi Orden Nomi</h1>
-            <span style={styles.badge}>{cart.length} items</span>
+            <button style={styles.backBtn} onClick={() => history.goBack()}>
+              <IonIcon icon={arrowBackOutline} style={{ fontSize: 22 }} />
+            </button>
+            <h1 style={styles.title}>Mi Orden</h1>
+            <span style={styles.badge}>{cart?.length || 0} items</span>
           </div>
 
+          {/* Success overlay */}
           {successOrderInfo && (
             <div style={styles.modalOverlay}>
               <div style={styles.modalCard}>
                 <div style={styles.modalSuccessIcon}>🎉</div>
                 <h2 style={styles.modalTitle}>¡Pedido Confirmado!</h2>
-                <p style={styles.modalSubtitle}>
-                  Tu comida de precisión ha sido enviada a nuestra Dark Kitchen más cercana.
-                </p>
+                <p style={styles.modalSubtitle}>Tu comida de precisión ha sido enviada a cocina.</p>
                 <div style={styles.orderIdCard}>
                   <span style={styles.orderIdLabel}>ID DE PEDIDO</span>
-                  <span style={styles.orderIdValue}>#{successOrderInfo.slice(-8).toUpperCase()}</span>
+                  <span style={styles.orderIdValue}>#{String(successOrderInfo).slice(-8).toUpperCase()}</span>
                 </div>
                 <div style={styles.timeEstCard}>
                   <IonIcon icon={timeOutline} style={styles.estIcon} />
-                  <span>Entrega estimada: <strong>25 - 35 mins</strong></span>
+                  <span>Entrega estimada: <strong>25–35 mins</strong></span>
                 </div>
-                <button 
-                  style={styles.modalBtn} 
-                  onClick={() => {
-                    setSuccessOrderInfo(null);
-                    history.push("/home");
-                  }}
+                <button
+                  style={styles.modalBtn}
+                  onClick={() => { setSuccessOrderInfo(null); history.push("/home"); }}
                 >
                   Entendido
                 </button>
@@ -151,12 +142,12 @@ export default function CartScreen() {
             </div>
           )}
 
-          {cart.length === 0 ? (
+          {cartIsEmpty ? (
             <div style={styles.emptyContainer}>
               <div style={styles.emptyIcon}>🌯</div>
               <h2 style={styles.emptyTitle}>Tu carrito está vacío</h2>
               <p style={styles.emptySubtitle}>
-                Explora nuestro menú de bases y desliza los gramos para armar tu comida perfecta.
+                Explora nuestro menú y arma tu comida perfecta al gramo.
               </p>
               <button style={styles.exploreBtn} onClick={() => history.push("/home")}>
                 Ir al Menú
@@ -164,44 +155,44 @@ export default function CartScreen() {
             </div>
           ) : (
             <>
-              {/* Itemized List */}
+              {/* Cart items */}
               <div style={styles.section}>
                 <h2 style={styles.sectionTitle}>Platillos Personalizados</h2>
                 <div style={styles.itemsList}>
                   {cart.map((item, index) => (
                     <div key={index} style={styles.cartCard}>
-                      <img 
-                        src={item.imageUrl} 
-                        alt={item.recipeName} 
-                        style={styles.cardImg}
-                        onError={(e) => { e.target.style.display = "none"; }}
-                      />
+                      {item.imageUrl && (
+                        <img
+                          src={item.imageUrl}
+                          alt={item.recipeName || "Platillo"}
+                          style={styles.cardImg}
+                          onError={(e) => { e.target.style.display = "none"; }}
+                        />
+                      )}
                       <div style={styles.cardDetails}>
                         <div style={styles.cardHeaderRow}>
-                          <h3 style={styles.recipeName}>{item.recipeName}</h3>
-                          <button 
-                            style={styles.deleteBtn}
-                            onClick={() => removeFromCart(index)}
-                          >
+                          <h3 style={styles.recipeName}>{item.recipeName || "Platillo personalizado"}</h3>
+                          <button style={styles.deleteBtn} onClick={() => removeFromCart(index)}>
                             <IonIcon icon={trashOutline} />
                           </button>
                         </div>
 
-                        {/* Grams Breakdown */}
-                        <div style={styles.ingredientsSummary}>
-                          {item.breakdown.map((ing) => (
-                            <span key={ing.id} style={styles.ingPill}>
-                              {ing.name}: <strong>{ing.grams}g</strong>
-                            </span>
-                          ))}
-                        </div>
+                        {/* Ingredient breakdown */}
+                        {Array.isArray(item.breakdown) && item.breakdown.length > 0 && (
+                          <div style={styles.ingredientsSummary}>
+                            {item.breakdown.map((ing, idx) => (
+                              <span key={ing.id || idx} style={styles.ingPill}>
+                                {ing.name}: <strong>{ing.grams}g</strong>
+                              </span>
+                            ))}
+                          </div>
+                        )}
 
-                        {/* Macros & Price Row */}
                         <div style={styles.cardFooterRow}>
                           <div style={styles.macroPillMini}>
-                            🔥 {item.macros.kcal} kcal · 🥩 {item.macros.protein}g prot
+                            🔥 {Math.round(item.macros?.kcal || 0)} kcal · 🥩 {(item.macros?.protein || 0).toFixed(0)}g prot
                           </div>
-                          <span style={styles.priceTag}>${item.finalPrice.toFixed(2)}</span>
+                          <span style={styles.priceTag}>${(item.finalPrice || 0).toFixed(2)}</span>
                         </div>
                       </div>
                     </div>
@@ -209,7 +200,7 @@ export default function CartScreen() {
                 </div>
               </div>
 
-              {/* Order total macro profile */}
+              {/* Nutrition totals */}
               <div style={styles.totalMacrosCard}>
                 <h3 style={styles.macrosTitle}>Balance Nutripedido</h3>
                 <div style={styles.macrosGrid}>
@@ -227,74 +218,60 @@ export default function CartScreen() {
                   </div>
                   <div style={styles.macroColumn}>
                     <span style={{ ...styles.macroVal, color: "#34D399" }}>{Math.round(totalKcal)}</span>
-                    <span style={styles.macroLbl}>Kcal Totales</span>
+                    <span style={styles.macroLbl}>Kcal</span>
                   </div>
                 </div>
               </div>
 
-              {/* Delivery Address section */}
+              {/* Delivery address */}
               <div style={styles.addressCard} onClick={() => setShowAddressModal(true)}>
                 <div style={styles.addressLeft}>
                   <IonIcon icon={locationOutline} style={styles.locIcon} />
                   <div>
                     <h4 style={styles.addressTitle}>Entregar en</h4>
                     <p style={styles.addressText}>
-                      {activeAddress 
+                      {activeAddress
                         ? `${activeAddress.street}, ${activeAddress.neighborhood}`
-                        : "Selecciona una dirección de entrega"}
+                        : "Toca para seleccionar dirección"}
                     </p>
                   </div>
                 </div>
                 <IonIcon icon={chevronForwardOutline} style={styles.arrowIcon} />
               </div>
 
-              {/* Distance and Time calculation section */}
               {activeAddress && (
                 <div style={styles.deliveryDetailCard}>
                   <IonIcon icon={timeOutline} style={styles.deliveryDetailIcon} />
-                  <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
+                  <div>
                     <span style={styles.deliveryDetailTitle}>Envío Inteligente Nomi</span>
                     <span style={styles.deliveryDetailText}>
-                      Distancia: <strong>{distance} km</strong> · Llegada estimada: <strong>{estTime} min</strong>
+                      Distancia: <strong>{distance} km</strong> · Llegada: <strong>{estTime} min</strong>
                     </span>
                   </div>
                 </div>
               )}
 
-              {/* Payment Method section */}
+              {/* Payment */}
               <div style={styles.paymentCard}>
                 <h3 style={styles.paymentTitle}>Método de Pago</h3>
                 <div style={styles.paymentOptions}>
-                  <button 
-                    type="button"
-                    onClick={() => setPaymentMethod("card")}
-                    style={{
-                      ...styles.paymentOptBtn,
-                      ...(paymentMethod === "card" ? styles.paymentOptActive : {})
-                    }}
-                  >
-                    💳 Tarjeta
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => setPaymentMethod("cash")}
-                    style={{
-                      ...styles.paymentOptBtn,
-                      ...(paymentMethod === "cash" ? styles.paymentOptActive : {})
-                    }}
-                  >
-                    💵 Efectivo
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={() => setPaymentMethod("applepay")}
-                    style={{
-                      ...styles.paymentOptBtn,
-                      ...(paymentMethod === "applepay" ? styles.paymentOptActive : {})
-                    }}
-                  >
-                    📱 Express Pay
-                  </button>
+                  {[
+                    { key: "card", label: "💳 Tarjeta" },
+                    { key: "cash", label: "💵 Efectivo" },
+                    { key: "applepay", label: "📱 Express Pay" },
+                  ].map(opt => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setPaymentMethod(opt.key)}
+                      style={{
+                        ...styles.paymentOptBtn,
+                        ...(paymentMethod === opt.key ? styles.paymentOptActive : {}),
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
                 </div>
                 <div style={styles.paymentInfoText}>
                   {paymentMethod === "card" && "Se simulará un cobro seguro cifrado por Stripe."}
@@ -303,7 +280,7 @@ export default function CartScreen() {
                 </div>
               </div>
 
-              {/* Cost breakdown */}
+              {/* Price summary */}
               <div style={styles.summaryCard}>
                 <h3 style={styles.summaryTitle}>Resumen del pedido</h3>
                 <div style={styles.priceRow}>
@@ -321,18 +298,16 @@ export default function CartScreen() {
                 </div>
               </div>
 
-              {/* Checkout CTA */}
+              {/* CTA */}
               <div style={styles.ctaContainer}>
-                <button 
-                  style={{ ...styles.checkoutBtn, opacity: loadingCheckout ? 0.7 : 1 }} 
+                <button
+                  style={{ ...styles.checkoutBtn, opacity: loadingCheckout ? 0.7 : 1 }}
                   onClick={handleCheckout}
                   disabled={loadingCheckout}
                 >
-                  {loadingCheckout ? (
-                    <IonSpinner name="crescent" color="dark" style={{ height: 20 }} />
-                  ) : (
-                    `Confirmar Pedido · $${total.toFixed(2)}`
-                  )}
+                  {loadingCheckout
+                    ? <IonSpinner name="crescent" color="dark" style={{ height: 20 }} />
+                    : `Confirmar Pedido · $${total.toFixed(2)}`}
                 </button>
                 <div style={styles.safetyDisclaimer}>
                   🔒 Pago 100% seguro encriptado procesado por Nomi Pay
@@ -341,54 +316,59 @@ export default function CartScreen() {
             </>
           )}
 
-          {/* Add Address Drawer/Modal */}
+          {/* Address modal — MapPicker lazy-loaded ONLY when modal is open */}
           {showAddressModal && (
             <div style={styles.modalOverlay}>
-              <div style={{ ...styles.modalCard, maxWidth: 500, width: "90%" }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h3 style={styles.modalTitle}>Direcciones de Envío</h3>
-                  <button style={styles.cancelPrescriptionBtn} onClick={() => setShowAddressModal(false)}>✕</button>
+              <div style={{ ...styles.modalCard, maxWidth: 500, width: "92%", maxHeight: "88vh" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <h3 style={styles.modalTitle}>Dirección de Envío</h3>
+                  <button style={styles.closeBtnX} onClick={() => setShowAddressModal(false)}>✕</button>
                 </div>
-                <p style={styles.modalSubtitle}>Selecciona en el mapa o elige una guardada.</p>
-                
-                <div style={{ marginBottom: 16 }}>
-                  <MapPicker onConfirm={handleMapConfirm} />
-                </div>
+                <p style={styles.modalSubtitle}>Toca el mapa para confirmar tu ubicación.</p>
 
-                <div style={styles.addressListContainer}>
-                  {addresses.map((addr) => (
-                    <div 
-                      key={addr.id} 
-                      onClick={() => { selectAddress(addr.id); setShowAddressModal(false); }}
-                      style={{
-                        ...styles.addressListItem,
-                        borderColor: addr.active ? "#F97316" : "#222227",
-                        backgroundColor: addr.active ? "rgba(249, 115, 22, 0.05)" : "#0B0B0C"
-                      }}
-                    >
-                      <div style={styles.listItemLeft}>
-                        <IonIcon 
-                          icon={locationOutline} 
-                          style={{ color: addr.active ? "#F97316" : "#64748B", fontSize: 18 }} 
-                        />
-                        <div>
-                          <p style={styles.listStreet}>{addr.street}</p>
-                          <p style={styles.listSub}>{addr.neighborhood}, {addr.city}</p>
+                <Suspense fallback={
+                  <div style={{ height: 250, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <IonSpinner name="crescent" />
+                  </div>
+                }>
+                  <div style={{ marginBottom: 16 }}>
+                    <MapPicker onConfirm={handleMapConfirm} />
+                  </div>
+                </Suspense>
+
+                {/* Saved addresses list */}
+                {(addresses || []).length > 0 && (
+                  <div style={styles.addressListContainer}>
+                    {(addresses || []).map((addr) => (
+                      <div
+                        key={addr.id}
+                        onClick={() => { selectAddress(addr.id); setShowAddressModal(false); }}
+                        style={{
+                          ...styles.addressListItem,
+                          borderColor: addr.active ? "#F97316" : "#222227",
+                          backgroundColor: addr.active ? "rgba(249,115,22,0.05)" : "#0B0B0C",
+                        }}
+                      >
+                        <div style={styles.listItemLeft}>
+                          <IonIcon icon={locationOutline} style={{ color: addr.active ? "#F97316" : "#64748B", fontSize: 18 }} />
+                          <div>
+                            <p style={styles.listStreet}>{addr.street}</p>
+                            <p style={styles.listSub}>{addr.neighborhood}, {addr.city}</p>
+                          </div>
                         </div>
+                        {addr.active && <IonIcon icon={checkmarkCircleOutline} style={{ color: "#F97316" }} />}
                       </div>
-                      {addr.active && <IonIcon icon={checkmarkCircleOutline} style={{ color: "#F97316" }} />}
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
 
                 <div style={styles.divider} />
 
-                {/* Form to add address */}
                 <form onSubmit={handleAddNewAddress} style={styles.addAddressForm}>
-                  <h4 style={styles.addAddressFormTitle}>Nueva Dirección</h4>
+                  <h4 style={styles.addAddressFormTitle}>Nueva Dirección Manual</h4>
                   <input
                     type="text"
-                    placeholder="Calle y Número Ext/Int"
+                    placeholder="Calle y Número"
                     value={newStreet}
                     onChange={(e) => setNewStreet(e.target.value)}
                     style={styles.formInput}
@@ -408,19 +388,14 @@ export default function CartScreen() {
                   </button>
                 </form>
 
-                <button 
-                  style={styles.modalSecondaryButton} 
-                  onClick={() => setShowAddressModal(false)}
-                >
+                <button style={styles.modalSecondaryButton} onClick={() => setShowAddressModal(false)}>
                   Cerrar
                 </button>
-                {/* Spacer at bottom of modal to ensure content isn't cut off by safe areas or padding */}
-                <div style={{ height: 32, flexShrink: 0, width: "100%" }} />
+                <div style={{ height: 24 }} />
               </div>
             </div>
           )}
 
-          {/* Bottom spacing */}
           <div style={{ height: "calc(100px + env(safe-area-inset-bottom))" }} />
         </div>
       </IonContent>
@@ -434,7 +409,7 @@ const styles = {
     minHeight: "100vh",
     maxWidth: 480,
     margin: "0 auto",
-    padding: "24px 20px",
+    padding: "20px 20px 0",
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     color: "#F8FAFC",
   },
@@ -445,11 +420,22 @@ const styles = {
     marginBottom: 24,
     marginTop: 12,
   },
+  backBtn: {
+    background: "none",
+    border: "none",
+    color: "#F8FAFC",
+    cursor: "pointer",
+    padding: 4,
+    display: "flex",
+    alignItems: "center",
+  },
   title: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: 800,
     letterSpacing: "-0.02em",
     margin: 0,
+    flex: 1,
+    textAlign: "center",
   },
   badge: {
     backgroundColor: "rgba(249, 115, 22, 0.15)",
@@ -459,7 +445,7 @@ const styles = {
     fontWeight: 700,
     borderRadius: 8,
     padding: "4px 8px",
-    textTransform: "uppercase"
+    textTransform: "uppercase",
   },
   emptyContainer: {
     display: "flex",
@@ -469,21 +455,9 @@ const styles = {
     padding: "60px 24px",
     gap: 16,
   },
-  emptyIcon: {
-    fontSize: 64,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: 700,
-    margin: 0,
-  },
-  emptySubtitle: {
-    fontSize: 13,
-    color: "#94A3B8",
-    lineHeight: 1.5,
-    margin: 0,
-    padding: "0 16px",
-  },
+  emptyIcon: { fontSize: 64 },
+  emptyTitle: { fontSize: 20, fontWeight: 700, margin: 0 },
+  emptySubtitle: { fontSize: 13, color: "#94A3B8", lineHeight: 1.5, margin: 0 },
   exploreBtn: {
     backgroundColor: "#F97316",
     color: "#000",
@@ -495,22 +469,16 @@ const styles = {
     cursor: "pointer",
     marginTop: 8,
   },
-  section: {
-    marginBottom: 24,
-  },
+  section: { marginBottom: 24 },
   sectionTitle: {
-    fontSize: 15,
+    fontSize: 12,
     fontWeight: 700,
     color: "#64748B",
     textTransform: "uppercase",
     letterSpacing: "0.08em",
     margin: "0 0 16px 0",
   },
-  itemsList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 16,
-  },
+  itemsList: { display: "flex", flexDirection: "column", gap: 16 },
   cartCard: {
     display: "flex",
     backgroundColor: "#131316",
@@ -518,12 +486,7 @@ const styles = {
     borderRadius: 20,
     overflow: "hidden",
   },
-  cardImg: {
-    width: 90,
-    height: 110,
-    objectFit: "cover",
-    backgroundColor: "#222227"
-  },
+  cardImg: { width: 90, height: 110, objectFit: "cover", backgroundColor: "#222227" },
   cardDetails: {
     flex: 1,
     padding: "12px 14px",
@@ -531,30 +494,10 @@ const styles = {
     flexDirection: "column",
     justifyContent: "space-between",
   },
-  cardHeaderRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  recipeName: {
-    fontSize: 15,
-    fontWeight: 700,
-    margin: 0,
-  },
-  deleteBtn: {
-    background: "none",
-    border: "none",
-    color: "#EF4444",
-    cursor: "pointer",
-    padding: 2,
-    fontSize: 16,
-  },
-  ingredientsSummary: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 4,
-    margin: "8px 0",
-  },
+  cardHeaderRow: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" },
+  recipeName: { fontSize: 15, fontWeight: 700, margin: 0 },
+  deleteBtn: { background: "none", border: "none", color: "#EF4444", cursor: "pointer", padding: 2, fontSize: 16 },
+  ingredientsSummary: { display: "flex", flexWrap: "wrap", gap: 4, margin: "8px 0" },
   ingPill: {
     fontSize: 9,
     backgroundColor: "#0B0B0C",
@@ -563,21 +506,9 @@ const styles = {
     padding: "2px 6px",
     borderRadius: 5,
   },
-  cardFooterRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 4,
-  },
-  macroPillMini: {
-    fontSize: 10,
-    color: "#64748B",
-  },
-  priceTag: {
-    fontSize: 14,
-    fontWeight: 700,
-    color: "#F97316",
-  },
+  cardFooterRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 },
+  macroPillMini: { fontSize: 10, color: "#64748B" },
+  priceTag: { fontSize: 14, fontWeight: 700, color: "#F97316" },
   totalMacrosCard: {
     backgroundColor: "#131316",
     border: "1px solid #222227",
@@ -594,28 +525,10 @@ const styles = {
     margin: "0 0 12px 0",
     textAlign: "center",
   },
-  macrosGrid: {
-    display: "flex",
-    justifyContent: "space-between",
-  },
-  macroColumn: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    flex: 1,
-  },
-  macroVal: {
-    fontSize: 16,
-    fontWeight: 700,
-    color: "#F97316",
-  },
-  macroLbl: {
-    fontSize: 9,
-    color: "#64748B",
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
-    marginTop: 2,
-  },
+  macrosGrid: { display: "flex", justifyContent: "space-between" },
+  macroColumn: { display: "flex", flexDirection: "column", alignItems: "center", flex: 1 },
+  macroVal: { fontSize: 16, fontWeight: 700, color: "#F97316" },
+  macroLbl: { fontSize: 9, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 2 },
   addressCard: {
     display: "flex",
     alignItems: "center",
@@ -624,35 +537,27 @@ const styles = {
     border: "1px solid #222227",
     borderRadius: 16,
     padding: "16px",
-    marginBottom: 20,
+    marginBottom: 16,
     cursor: "pointer",
   },
+  addressLeft: { display: "flex", alignItems: "center", gap: 12 },
+  locIcon: { color: "#F97316", fontSize: 20 },
+  addressTitle: { fontSize: 13, fontWeight: 700, margin: 0, color: "#F8FAFC" },
+  addressText: { fontSize: 11, color: "#94A3B8", margin: "2px 0 0 0" },
+  arrowIcon: { color: "#64748B", fontSize: 16 },
   deliveryDetailCard: {
     display: "flex",
     alignItems: "center",
     gap: 12,
-    backgroundColor: "rgba(52, 211, 153, 0.05)",
-    border: "1px solid rgba(52, 211, 153, 0.2)",
+    backgroundColor: "rgba(52,211,153,0.05)",
+    border: "1px solid rgba(52,211,153,0.2)",
     borderRadius: 16,
-    padding: "16px",
+    padding: "14px",
     marginBottom: 20,
   },
-  deliveryDetailIcon: {
-    color: "#34D399",
-    fontSize: 22,
-  },
-  deliveryDetailTitle: {
-    fontSize: 12,
-    fontWeight: 700,
-    color: "#34D399",
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
-  },
-  deliveryDetailText: {
-    fontSize: 12,
-    color: "#CBD5E1",
-    marginTop: 4,
-  },
+  deliveryDetailIcon: { color: "#34D399", fontSize: 22 },
+  deliveryDetailTitle: { fontSize: 11, fontWeight: 700, color: "#34D399", textTransform: "uppercase", letterSpacing: "0.04em", display: "block" },
+  deliveryDetailText: { fontSize: 12, color: "#CBD5E1", marginTop: 2, display: "block" },
   paymentCard: {
     backgroundColor: "#131316",
     border: "1px solid #222227",
@@ -667,13 +572,8 @@ const styles = {
     textTransform: "uppercase",
     letterSpacing: "0.08em",
     margin: "0 0 14px 0",
-    textAlign: "left",
   },
-  paymentOptions: {
-    display: "flex",
-    gap: 8,
-    marginBottom: 12,
-  },
+  paymentOptions: { display: "flex", gap: 8, marginBottom: 12 },
   paymentOptBtn: {
     flex: 1,
     backgroundColor: "#0B0B0C",
@@ -684,43 +584,13 @@ const styles = {
     fontWeight: 600,
     color: "#94A3B8",
     cursor: "pointer",
-    transition: "all 0.2s ease",
   },
   paymentOptActive: {
-    backgroundColor: "rgba(249, 115, 22, 0.15)",
+    backgroundColor: "rgba(249,115,22,0.15)",
     borderColor: "#F97316",
     color: "#F97316",
   },
-  paymentInfoText: {
-    fontSize: 11,
-    color: "#64748B",
-    textAlign: "left",
-    paddingLeft: 4,
-  },
-  addressLeft: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-  },
-  locIcon: {
-    color: "#F97316",
-    fontSize: 20,
-  },
-  addressTitle: {
-    fontSize: 13,
-    fontWeight: 700,
-    margin: 0,
-    color: "#F8FAFC",
-  },
-  addressText: {
-    fontSize: 11,
-    color: "#94A3B8",
-    margin: "2px 0 0 0",
-  },
-  arrowIcon: {
-    color: "#64748B",
-    fontSize: 16,
-  },
+  paymentInfoText: { fontSize: 11, color: "#64748B", paddingLeft: 4 },
   summaryCard: {
     backgroundColor: "#131316",
     border: "1px solid #222227",
@@ -736,35 +606,11 @@ const styles = {
     letterSpacing: "0.08em",
     margin: "0 0 14px 0",
   },
-  priceRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    fontSize: 13,
-    color: "#94A3B8",
-    marginBottom: 10,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: "#222227",
-    margin: "12px 0",
-  },
-  totalRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    fontSize: 14,
-    fontWeight: 700,
-  },
-  totalPrice: {
-    color: "#F97316",
-    fontSize: 16,
-  },
-  ctaContainer: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 8,
-  },
+  priceRow: { display: "flex", justifyContent: "space-between", fontSize: 13, color: "#94A3B8", marginBottom: 10 },
+  divider: { height: 1, backgroundColor: "#222227", margin: "12px 0" },
+  totalRow: { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 14, fontWeight: 700 },
+  totalPrice: { color: "#F97316", fontSize: 16 },
+  ctaContainer: { display: "flex", flexDirection: "column", alignItems: "center", gap: 8 },
   checkoutBtn: {
     width: "100%",
     backgroundColor: "#F97316",
@@ -779,16 +625,13 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
   },
-  safetyDisclaimer: {
-    fontSize: 10,
-    color: "#64748B",
-  },
+  safetyDisclaimer: { fontSize: 10, color: "#64748B" },
 
-  // Modal / Drawer Overlay
+  // Modals
   modalOverlay: {
     position: "fixed",
     inset: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.9)",
+    backgroundColor: "rgba(0,0,0,0.9)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -800,7 +643,7 @@ const styles = {
     backgroundColor: "#131316",
     border: "1px solid #222227",
     borderRadius: 24,
-    padding: "32px 24px",
+    padding: "28px 24px",
     width: "100%",
     maxWidth: 360,
     maxHeight: "90vh",
@@ -811,25 +654,9 @@ const styles = {
     gap: 12,
     boxShadow: "0 15px 40px rgba(0,0,0,0.6)",
   },
-  modalSuccessIcon: {
-    fontSize: 54,
-    marginBottom: 8,
-    alignSelf: "center",
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 800,
-    color: "#F8FAFC",
-    margin: 0,
-    textAlign: "center",
-  },
-  modalSubtitle: {
-    fontSize: 13,
-    color: "#94A3B8",
-    textAlign: "center",
-    margin: 0,
-    lineHeight: 1.5,
-  },
+  modalSuccessIcon: { fontSize: 54, marginBottom: 8, alignSelf: "center" },
+  modalTitle: { fontSize: 20, fontWeight: 800, color: "#F8FAFC", margin: 0, textAlign: "center" },
+  modalSubtitle: { fontSize: 13, color: "#94A3B8", textAlign: "center", margin: 0, lineHeight: 1.5 },
   orderIdCard: {
     display: "flex",
     flexDirection: "column",
@@ -841,28 +668,10 @@ const styles = {
     width: "100%",
     marginTop: 8,
   },
-  orderIdLabel: {
-    fontSize: 9,
-    color: "#64748B",
-    textTransform: "uppercase",
-    letterSpacing: "0.08em",
-  },
-  orderIdValue: {
-    fontSize: 18,
-    fontWeight: 800,
-    color: "#F97316",
-  },
-  timeEstCard: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    fontSize: 12,
-    color: "#34D399",
-    marginTop: 4,
-  },
-  estIcon: {
-    fontSize: 14,
-  },
+  orderIdLabel: { fontSize: 9, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.08em" },
+  orderIdValue: { fontSize: 18, fontWeight: 800, color: "#F97316" },
+  timeEstCard: { display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#34D399", marginTop: 4 },
+  estIcon: { fontSize: 14 },
   modalBtn: {
     width: "100%",
     backgroundColor: "#F97316",
@@ -875,8 +684,15 @@ const styles = {
     cursor: "pointer",
     marginTop: 12,
   },
-
-  // Address Modal Specific
+  closeBtnX: {
+    backgroundColor: "transparent",
+    border: "none",
+    color: "#6B6B6B",
+    fontSize: 18,
+    cursor: "pointer",
+    padding: "4px 8px",
+    borderRadius: 4,
+  },
   addressListContainer: {
     width: "100%",
     display: "flex",
@@ -896,36 +712,11 @@ const styles = {
     padding: "12px",
     cursor: "pointer",
   },
-  listItemLeft: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-  },
-  listStreet: {
-    fontSize: 13,
-    fontWeight: 700,
-    margin: 0,
-    color: "#F8FAFC",
-  },
-  listSub: {
-    fontSize: 11,
-    color: "#64748B",
-    margin: "2px 0 0 0",
-  },
-  addAddressForm: {
-    width: "100%",
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
-    marginTop: 8,
-  },
-  addAddressFormTitle: {
-    fontSize: 12,
-    fontWeight: 700,
-    color: "#64748B",
-    textTransform: "uppercase",
-    margin: "8px 0 2px 0",
-  },
+  listItemLeft: { display: "flex", alignItems: "center", gap: 10 },
+  listStreet: { fontSize: 13, fontWeight: 700, margin: 0, color: "#F8FAFC" },
+  listSub: { fontSize: 11, color: "#64748B", margin: "2px 0 0 0" },
+  addAddressForm: { width: "100%", display: "flex", flexDirection: "column", gap: 10, marginTop: 8 },
+  addAddressFormTitle: { fontSize: 12, fontWeight: 700, color: "#64748B", textTransform: "uppercase", margin: "8px 0 2px 0" },
   formInput: {
     backgroundColor: "#0B0B0C",
     border: "1px solid #222227",
@@ -934,10 +725,12 @@ const styles = {
     borderRadius: 8,
     fontSize: 12,
     outline: "none",
+    width: "100%",
+    boxSizing: "border-box",
   },
   addAddrBtn: {
-    backgroundColor: "rgba(249, 115, 22, 0.1)",
-    border: "1px solid rgba(249, 115, 22, 0.25)",
+    backgroundColor: "rgba(249,115,22,0.1)",
+    border: "1px solid rgba(249,115,22,0.25)",
     color: "#F97316",
     borderRadius: 10,
     padding: "10px",
@@ -958,5 +751,5 @@ const styles = {
     cursor: "pointer",
     marginTop: 10,
     padding: "4px",
-  }
+  },
 };

@@ -64,7 +64,7 @@ export default function MenuDashboard({ selectedRestaurant }) {
 
   // Load ingredients for form selection
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "ingredients"), (snapshot) => {
+    const unsubscribe = onSnapshot(collection(db, "master_ingredients"), (snapshot) => {
       const data = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()

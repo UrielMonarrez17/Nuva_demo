@@ -37,7 +37,7 @@ export default function MacrosDashboard() {
   // Load ingredients from Firestore
   useEffect(() => {
     setLoading(true);
-    const unsubscribe = onSnapshot(collection(db, "ingredients"), (snapshot) => {
+    const unsubscribe = onSnapshot(collection(db, "master_ingredients"), (snapshot) => {
       const data = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
@@ -173,11 +173,37 @@ export default function MacrosDashboard() {
     };
 
     try {
-      const safeId = editingId || "ing_" + formName.toLowerCase().replace(/[^a-z0-9]/g, "_");
+      const safeId = editingId || formName.toLowerCase().replace(/[^a-z0-9]/g, "_");
       
-      // Save in BOTH collections to keep them unified
-      await setDoc(doc(db, "ingredients", safeId), ingData, { merge: true });
-      await setDoc(doc(db, "master_ingredients", safeId), ingData, { merge: true });
+      const masterData = {
+        name: formName.trim(),
+        foodGroup: ingData.foodGroup || "Proteína", // Placeholder, since it's missing in form
+        macrosPerGram: {
+          kcal: parseFloat(formKcalPerGram) || 0,
+          protein: parseFloat(formProteinPerGram) || 0,
+          carbs: parseFloat(formCarbPerGram) || 0,
+          fats: parseFloat(formFatPerGram) || 0
+        },
+        smaeEquivalentGrams: calculatedDefaultGrams,
+        visualMeasure: {
+          unitName: finalUnitName,
+          averageWeight: finalAvgWeight
+        },
+        // Legacy support properties for other components
+        ...ingData 
+      };
+
+      const restaurantData = {
+        id: "rest_" + safeId,
+        masterIngredientId: safeId,
+        restaurantId: "rest_1",
+        pricePerPortion: calculatedCostPerGram * calculatedDefaultGrams,
+        gramsPerPortion: calculatedDefaultGrams,
+        isAvailable: true
+      };
+
+      await setDoc(doc(db, "master_ingredients", safeId), masterData, { merge: true });
+      await setDoc(doc(db, "restaurant_ingredients", "rest_" + safeId), restaurantData, { merge: true });
       
       setIsModalOpen(false);
     } catch (err) {
@@ -189,8 +215,8 @@ export default function MacrosDashboard() {
   const handleDelete = async (ingId) => {
     if (window.confirm("¿Estás seguro de que deseas eliminar este ingrediente? Se quitará de las recetas que lo usen.")) {
       try {
-        await deleteDoc(doc(db, "ingredients", ingId));
         await deleteDoc(doc(db, "master_ingredients", ingId));
+        await deleteDoc(doc(db, "restaurant_ingredients", "rest_" + ingId));
       } catch (err) {
         console.error("Error deleting ingredient:", err);
         alert("Hubo un error al eliminar el ingrediente.");

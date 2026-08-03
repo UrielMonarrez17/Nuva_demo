@@ -1,184 +1,106 @@
-// src/pages/CustomDishScreen.jsx
-
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { useParams, useHistory, useLocation } from "react-router-dom";
 import { useApp } from "../context/AppContext";
 import { useRecipeLoader } from "../hooks/useRecipeLoader";
-import { usePricingCalculator } from "../hooks/usePricingCalculator";
-import { IonPage, IonContent, IonIcon, useIonViewWillEnter } from "@ionic/react";
-import { arrowBackOutline, documentTextOutline, cartOutline } from "ionicons/icons";
+import { useMenu } from "../hooks/useMenu";
+import { IonPage, IonContent, useIonViewWillEnter, IonIcon } from "@ionic/react";
+import { arrowBackOutline, removeOutline, addOutline } from "ionicons/icons";
 
-// ─── SUBCOMPONENTES ───────────────────────────────────────────────────────────
+function MacroProgressBar({ label, current, target, colorClass }) {
+  if (!target || target <= 0) target = 1; 
+  const diff = current - target;
+  let statusText = "";
+  let statusColor = "";
+  let progressColor = colorClass;
 
-function LoadingScreen() {
-  return (
-    <div style={styles.centered}>
-      <div style={styles.spinner} />
-      <p style={styles.loadingText}>Cargando tu platillo de precisión...</p>
-    </div>
-  );
-}
+  if (diff > target * 0.1) {
+    statusText = `Excedente: +${diff.toFixed(1)}g`;
+    statusColor = "text-red-400";
+    progressColor = "bg-red-500";
+  } else if (diff < -target * 0.1) {
+    statusText = `Faltan: ${Math.abs(diff).toFixed(1)}g`;
+    statusColor = "text-yellow-400";
+    progressColor = "bg-yellow-500";
+  } else {
+    statusText = "¡Excelente!";
+    statusColor = "text-emerald-400";
+    progressColor = "bg-emerald-500";
+  }
 
-function ErrorScreen({ message, onGoBack }) {
-  return (
-    <div style={styles.centered}>
-      <p style={{ ...styles.loadingText, color: "#EF4444" }}>⚠️ {message}</p>
-      <button style={styles.backBtnInline} onClick={onGoBack}>
-        Volver al Menú
-      </button>
-    </div>
-  );
-}
-
-function MacroBadge({ label, value, unit, color }) {
-  return (
-    <div style={styles.macroBadge}>
-      <span style={{ ...styles.macroValue, color }}>{value}</span>
-      <span style={styles.macroUnit}>{unit}</span>
-      <span style={styles.macroLabel}>{label}</span>
-    </div>
-  );
-}
-
-function IngredientSlider({ ingredient, grams, onChange, isExcluded, onToggleExclude }) {
-  const percentage = isExcluded ? 0 :
-    ((grams - ingredient.minGrams) / (ingredient.maxGrams - ingredient.minGrams)) * 100;
+  const percentage = Math.min((current / target) * 100, 100);
 
   return (
-    <div style={{ ...styles.sliderCard, opacity: isExcluded ? 0.5 : 1 }}>
-      {/* Encabezado del ingrediente */}
-      <div style={styles.sliderHeader}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <input 
-            type="checkbox" 
-            checked={!isExcluded}
-            onChange={() => onToggleExclude(ingredient.id, ingredient.defaultGrams)}
-            style={{ width: 18, height: 18, accentColor: '#F97316', cursor: 'pointer' }}
-          />
-          <span style={styles.ingredientName}>
-            {ingredient.icon || "🥗"} {ingredient.name}
-          </span>
-        </div>
-        <div style={styles.gramsDisplay}>
-          <span style={styles.gramsValue}>{isExcluded ? 0 : grams}</span>
-          <span style={styles.gramsUnit}>g</span>
-        </div>
+    <div className="mb-4 last:mb-0">
+      <div className="flex justify-between text-xs mb-1">
+        <span className="text-zinc-400 font-bold uppercase tracking-wider">{label}</span>
+        <span className={`${statusColor} font-bold`}>{statusText}</span>
       </div>
-
-      {/* Barra de progreso visual */}
-      <div style={styles.progressBarTrack}>
-        <div
-          style={{
-            ...styles.progressBarFill,
-            width: `${percentage}%`,
-            backgroundColor: isExcluded ? '#4A4A5A' : '#F97316'
-          }}
-        />
+      <div className="h-2.5 w-full bg-zinc-800 rounded-full overflow-hidden">
+        <div className={`h-full ${progressColor} transition-all duration-300 ease-out`} style={{ width: `${percentage}%` }}></div>
       </div>
-
-      {/* Slider nativo */}
-      <input
-        type="range"
-        min={ingredient.minGrams}
-        max={ingredient.maxGrams}
-        step={5}
-        value={isExcluded ? ingredient.minGrams : grams}
-        onChange={(e) => !isExcluded && onChange(ingredient.id, Number(e.target.value))}
-        style={{ ...styles.sliderInput, cursor: isExcluded ? 'not-allowed' : 'pointer' }}
-        disabled={isExcluded}
-        aria-label={`Gramos de ${ingredient.name}`}
-      />
-
-      {/* Etiquetas min/max */}
-      <div style={styles.sliderLabels}>
-        <span style={styles.sliderLabelText}>{ingredient.minGrams}g mín</span>
-        <span style={styles.sliderLabelText}>{ingredient.maxGrams}g máx</span>
+      <div className="flex justify-between text-[10px] mt-1.5 text-zinc-500 font-medium">
+        <span>Actual: {current.toFixed(1)}g</span>
+        <span>Meta: {target.toFixed(1)}g</span>
       </div>
-
-      {/* Info nutricional del ingrediente */}
-      {!isExcluded && (
-        <div style={styles.ingNutrition}>
-          <span style={styles.ingNutritionItem}>
-            🥩 {Math.round(grams * ingredient.proteinPerGram * 10) / 10}g prot
-          </span>
-          <span style={styles.ingNutritionItem}>
-            🌾 {Math.round(grams * ingredient.carbPerGram * 10) / 10}g carb
-          </span>
-          <span style={styles.ingNutritionItem}>
-            🫒 {Math.round(grams * ingredient.fatPerGram * 10) / 10}g grasas
-          </span>
-          <span style={styles.ingNutritionItem}>
-            🔥 {Math.round(grams * ingredient.kcalPerGram)} kcal
-          </span>
-        </div>
-      )}
     </div>
   );
 }
 
 function OrderSuccessModal({ isPrescription, patientName, orderId, onGoBack, onGoCart }) {
   return (
-    <div style={styles.modalOverlay}>
-      <div style={styles.modalCard}>
-        <div style={styles.modalIcon}>{isPrescription ? "🩺" : "🛒"}</div>
-        <h2 style={styles.modalTitle}>
+    <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-[1000] p-5 backdrop-blur-md">
+      <div className="bg-zinc-900 rounded-[28px] p-8 w-full max-w-sm flex flex-col items-center gap-3 border border-zinc-800 shadow-2xl">
+        <div className="text-6xl mb-2">{isPrescription ? "🩺" : "🛒"}</div>
+        <h2 className="text-2xl font-black text-white m-0 tracking-tight">
           {isPrescription ? "¡Receta Enviada!" : "Añadido al Carrito"}
         </h2>
-        <p style={styles.modalSubtitle}>
+        <p className="text-sm text-zinc-400 text-center leading-relaxed">
           {isPrescription
-            ? `Tu paciente ${patientName} recibirá una notificación con la orden pre-armada lista para pagar.`
+            ? `Tu paciente ${patientName} recibirá una notificación con la orden lista.`
             : "El platillo personalizado se ha agregado a tu carrito."}
         </p>
 
-        {isPrescription ? (
-          <div style={styles.modalOrderId}>
-            <span style={styles.modalOrderIdLabel}>ESTADO</span>
-            <span style={{ ...styles.modalOrderIdValue, color: "#A78BFA" }}>PENDIENTE</span>
-          </div>
-        ) : (
-          <div style={styles.modalOrderId}>
-            <span style={styles.modalOrderIdLabel}>PRECIO UNITARIO</span>
-            <span style={styles.modalOrderIdValue}>${orderId} MXN</span>
-          </div>
-        )}
+        <div className="flex flex-col items-center bg-zinc-950 rounded-2xl p-4 gap-1 w-full mt-4 border border-zinc-800">
+          <span className="text-[10px] text-zinc-500 uppercase tracking-widest">{isPrescription ? "ESTADO" : "TOTAL"}</span>
+          <span className={`text-xl font-black ${isPrescription ? 'text-orange-500' : 'text-white'}`}>
+            {isPrescription ? "PENDIENTE" : `$${orderId} MXN`}
+          </span>
+        </div>
 
-        <div style={styles.modalBtnColumn}>
+        <div className="w-full flex flex-col gap-3 mt-6">
           {isPrescription ? (
-            <button style={styles.modalPrimaryButton} onClick={onGoBack}>
+            <button className="w-full bg-orange-600 text-white rounded-xl py-4 text-sm font-bold hover:bg-orange-500 transition-colors" onClick={onGoBack}>
               Volver al Dashboard
             </button>
           ) : (
             <>
-              <button style={styles.modalPrimaryButton} onClick={onGoCart}>
+              <button className="w-full bg-orange-600 text-white rounded-xl py-4 text-sm font-bold hover:bg-orange-500 transition-colors" onClick={onGoCart}>
                 Ir al Carrito
               </button>
-              <button style={styles.modalSecondaryButton} onClick={onGoBack}>
+              <button className="w-full bg-transparent text-zinc-400 border border-zinc-800 rounded-xl py-4 text-sm font-bold hover:bg-zinc-800 transition-colors" onClick={onGoBack}>
                 Seguir Comprando
               </button>
             </>
           )}
-          <div style={{ height: 24, flexShrink: 0, width: "100%" }} />
         </div>
       </div>
     </div>
   );
 }
 
-// ─── PANTALLA PRINCIPAL ───────────────────────────────────────────────────────
-
 export default function CustomDishScreen() {
   const { recipeId } = useParams();
   const history = useHistory();
-  const { activeRole, patientSelector, addToCart, sendPrescription, setPatientSelector, restaurants, nutritionalPlan, redeemPrescription, userProfile } = useApp();
+  const location = useLocation();
+  const { activeRole, patientSelector, addToCart, sendPrescription, setPatientSelector, nutritionalPlan, redeemPrescription, userProfile } = useApp();
 
   const activeRecipeId = recipeId || "recipe_tazon_teriyaki";
-  const { recipe, ingredients, loading, error } = useRecipeLoader(activeRecipeId);
+  
+  const { recipe, loading: recipeLoading, error: recipeError } = useRecipeLoader(activeRecipeId);
+  const { ingredients: allMenu, loading: menuLoading } = useMenu("rest_1");
 
-  // gramsMap: { [ingredientId]: number }
-  const [gramsMap, setGramsMap] = useState({});
-  const [excludedIngredients, setExcludedIngredients] = useState([]);
+  const [portionsMap, setPortionsMap] = useState({});
   const [selectedOptions, setSelectedOptions] = useState([]);
-  const [isInitialized, setIsInitialized] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -188,173 +110,27 @@ export default function CustomDishScreen() {
     setSubmitError(null);
   });
 
-  const handleToggleExclude = useCallback((ingredientId, defGrams) => {
-    setExcludedIngredients((prev) => {
-      const isExcluded = prev.includes(ingredientId);
-      if (isExcluded) {
-        setGramsMap((g) => ({ ...g, [ingredientId]: defGrams }));
-        return prev.filter((id) => id !== ingredientId);
-      } else {
-        setGramsMap((g) => ({ ...g, [ingredientId]: 0 }));
-        return [...prev, ingredientId];
-      }
+  const recipeIngredients = useMemo(() => {
+    if (!recipe || !allMenu.length) return [];
+    return allMenu.filter(ing => {
+      const allowed = recipe.allowedIngredients || [];
+      return allowed.includes(ing.masterIngredientId) || 
+             allowed.includes(ing.id) ||
+             allowed.includes(`ing_${ing.masterIngredientId}`) ||
+             allowed.includes(ing.name.toLowerCase().replace(" ", "_"));
     });
-  }, []);
+  }, [recipe, allMenu]);
 
-  const handleOptionToggle = (option) => {
-    setSelectedOptions((prev) => {
-      const exists = prev.some((o) => o.name === option.name);
-      if (exists) {
-        return prev.filter((o) => o.name !== option.name);
-      } else {
-        return [...prev, option];
-      }
-    });
-  };
-
-  // Macro adjustments states
-  const [showMacroPanel, setShowMacroPanel] = useState(false);
-  const [targetProtein, setTargetProtein] = useState("30");
-  const [targetCarbs, setTargetCarbs] = useState("50");
-  const [targetFat, setTargetFat] = useState("12");
-
-  // Portions equivalents states
-  const [portProtein, setPortProtein] = useState(0);
-  const [portCarb, setPortCarb] = useState(0);
-  const [portVeg, setPortVeg] = useState(0);
-  const [portFat, setPortFat] = useState(0);
-
-  const updateMacrosFromPortions = (p, c, v, f) => {
-    // Portions equivalents factors:
-    // P (protein): 7g P, 3g F
-    // C (carbs): 2g P, 15g C
-    // V (veg): 1g P, 4g C
-    // F (fat): 5g F
-    const proteinGrams = p * 7 + c * 2 + v * 1;
-    const carbGrams = c * 15 + v * 4;
-    const fatGrams = p * 3 + f * 5;
-    
-    setTargetProtein(proteinGrams.toString());
-    setTargetCarbs(carbGrams.toString());
-    setTargetFat(fatGrams.toString());
-  };
-
-  const location = useLocation();
-  const initialGramsFromState = location.state?.initialGrams;
-  const prescriptionIdFromState = location.state?.prescriptionId;
-
-  // Initialize gramsMap with state if provided, or default recipe-specific limits
   useEffect(() => {
-    if (ingredients.length > 0 && !isInitialized && recipe) {
-      if (initialGramsFromState) {
-        setGramsMap(initialGramsFromState);
-      } else {
-        // If there's an activePlan, calculate the optimal grams automatically!
-        const activePlan = nutritionalPlan || (userProfile?.targetMacros ? {
-          kcalLimit: userProfile.targetMacros.kcalLimit,
-          proteinLimit: userProfile.targetMacros.proteinLimit,
-          carbLimit: userProfile.targetMacros.carbLimit,
-          fatLimit: userProfile.targetMacros.fatLimit,
-          periodType: userProfile.targetMacros.periodType || "day"
-        } : null);
-
-        if (activePlan) {
-          const divisor = activePlan.periodType === "day" ? 3 : 1;
-          const pTarget = activePlan.proteinLimit / divisor;
-          const cTarget = activePlan.carbLimit / divisor;
-          const fTarget = activePlan.fatLimit / divisor;
-
-          // Set target states so the UI/Calculator input matches
-          setTargetProtein(Math.round(pTarget).toString());
-          setTargetCarbs(Math.round(cTarget).toString());
-          setTargetFat(Math.round(fTarget).toString());
-
-          // Estimar porciones basadas en los macros objetivo
-          const estC = Math.round(cTarget / 15);
-          const estP = Math.max(0, Math.round((pTarget - estC * 2) / 7));
-          const estF = Math.max(0, Math.round((fTarget - estP * 3) / 5));
-          
-          setPortCarb(estC);
-          setPortProtein(estP);
-          setPortFat(estF);
-
-          // Identify primary source of protein, carbs, fat
-          let bestProteinSource = null;
-          let bestCarbSource = null;
-          let bestFatSource = null;
-          let maxP = -1, maxC = -1, maxF = -1;
-
-          ingredients.forEach(ing => {
-            if (ing.proteinPerGram > maxP) {
-              maxP = ing.proteinPerGram;
-              bestProteinSource = ing;
-            }
-            if (ing.carbPerGram > maxC) {
-              maxC = ing.carbPerGram;
-              bestCarbSource = ing;
-            }
-            if (ing.fatPerGram > maxF) {
-              maxF = ing.fatPerGram;
-              bestFatSource = ing;
-            }
-          });
-
-          const autoGramsMap = {};
-          ingredients.forEach(ing => {
-            const limits = recipe.ingredientLimits?.[ing.id] || {};
-            const minG = limits.min !== undefined ? limits.min : ing.minGrams;
-            const maxG = limits.max !== undefined ? limits.max : ing.maxGrams;
-            const defG = limits.default !== undefined ? limits.default : ing.defaultGrams;
-
-            let calculatedGrams = defG;
-            if (bestProteinSource && ing.id === bestProteinSource.id && bestProteinSource.proteinPerGram > 0) {
-              calculatedGrams = Math.round(pTarget / bestProteinSource.proteinPerGram);
-            } else if (bestCarbSource && ing.id === bestCarbSource.id && bestCarbSource.carbPerGram > 0) {
-              calculatedGrams = Math.round(cTarget / bestCarbSource.carbPerGram);
-            } else if (bestFatSource && ing.id === bestFatSource.id && bestFatSource.fatPerGram > 0) {
-              calculatedGrams = Math.round(fTarget / bestFatSource.fatPerGram);
-            }
-
-            autoGramsMap[ing.id] = Math.max(minG, Math.min(maxG, calculatedGrams));
-          });
-          setGramsMap(autoGramsMap);
-        } else {
-          const defaults = {};
-          ingredients.forEach((ing) => {
-            const limits = recipe.ingredientLimits?.[ing.id] || {};
-            defaults[ing.id] = limits.default !== undefined ? limits.default : ing.defaultGrams;
-          });
-          setGramsMap(defaults);
-        }
-      }
-      setIsInitialized(true);
+    if (recipeIngredients.length > 0 && Object.keys(portionsMap).length === 0) {
+      const initialMap = {};
+      recipeIngredients.forEach(ing => {
+        initialMap[ing.id] = 1; // Default 1 porción
+      });
+      setPortionsMap(initialMap);
     }
-  }, [ingredients, isInitialized, recipe, initialGramsFromState, nutritionalPlan, userProfile?.targetMacros]);
+  }, [recipeIngredients, portionsMap]);
 
-  // Apply recipe-specific limits if defined
-  const selectedIngredients = ingredients.map((ing) => {
-    const limits = recipe?.ingredientLimits?.[ing.id] || {};
-    const effectiveIng = {
-      ...ing,
-      minGrams: limits.min !== undefined ? limits.min : ing.minGrams,
-      maxGrams: limits.max !== undefined ? limits.max : ing.maxGrams,
-      defaultGrams: limits.default !== undefined ? limits.default : ing.defaultGrams
-    };
-    const isExcluded = excludedIngredients.includes(ing.id);
-    return {
-      ...effectiveIng,
-      isExcluded,
-      grams: isExcluded ? 0 : (gramsMap[ing.id] ?? effectiveIng.defaultGrams),
-    };
-  });
-
-  const optionsCost = selectedOptions.reduce((sum, opt) => sum + (opt.price || 0), 0);
-
-  // Real-time pricing engine
-  const { finalPrice, macros, breakdown, ingredientCost, productionCost } =
-    usePricingCalculator(selectedIngredients, (recipe?.fixedCost ?? 0) + optionsCost);
-
-  // Real-time diet validation warning calculator
   const activePlan = nutritionalPlan || (userProfile?.targetMacros ? {
     kcalLimit: userProfile.targetMacros.kcalLimit,
     proteinLimit: userProfile.targetMacros.proteinLimit,
@@ -363,185 +139,96 @@ export default function CustomDishScreen() {
     periodType: userProfile.targetMacros.periodType || "day"
   } : null);
 
-  const dietTargetKcal = activePlan ? (activePlan.periodType === "day" ? activePlan.kcalLimit / 3 : activePlan.kcalLimit) : 2000 / 3;
-  const dietTargetProtein = activePlan ? (activePlan.periodType === "day" ? activePlan.proteinLimit / 3 : activePlan.proteinLimit) : 130 / 3;
-  const dietTargetCarbs = activePlan ? (activePlan.periodType === "day" ? activePlan.carbLimit / 3 : activePlan.carbLimit) : 250 / 3;
-  const dietTargetFat = activePlan ? (activePlan.periodType === "day" ? activePlan.fatLimit / 3 : activePlan.fatLimit) : 65 / 3;
-
-  const warnings = [];
-  const statusLabel = activePlan ? "🩺 Plan de tu Nutriólogo" : "⚖️ Dieta Estándar (Recomendada)";
-
-  // Check warnings only if there is an active plan
-  if (activePlan) {
-    // Protein
-    if (macros.protein < dietTargetProtein * 0.9) {
-      warnings.push({
-        type: "warning",
-        text: `Te faltan ${(dietTargetProtein - macros.protein).toFixed(1)}g de Proteína para alcanzar tu meta de esta comida (${dietTargetProtein.toFixed(0)}g).`
-      });
-    } else if (macros.protein > dietTargetProtein * 1.1) {
-      warnings.push({
-        type: "danger",
-        text: `Te estás excediendo por ${(macros.protein - dietTargetProtein).toFixed(1)}g de Proteína en esta comida (${dietTargetProtein.toFixed(0)}g meta).`
-      });
-    }
-
-    // Carbs
-    if (macros.carbs < dietTargetCarbs * 0.9) {
-      warnings.push({
-        type: "warning",
-        text: `Te faltan ${(dietTargetCarbs - macros.carbs).toFixed(1)}g de Carbohidratos para tu meta (${dietTargetCarbs.toFixed(0)}g meta).`
-      });
-    } else if (macros.carbs > dietTargetCarbs * 1.1) {
-      warnings.push({
-        type: "danger",
-        text: `Te excedes por ${(macros.carbs - dietTargetCarbs).toFixed(1)}g de Carbohidratos (${dietTargetCarbs.toFixed(0)}g meta).`
-      });
-    }
-
-    // Fat
-    if (macros.fats < dietTargetFat * 0.9) {
-      warnings.push({
-        type: "warning",
-        text: `Te faltan ${(dietTargetFat - macros.fats).toFixed(1)}g de Grasas saludables para tu meta (${dietTargetFat.toFixed(0)}g meta).`
-      });
-    } else if (macros.fats > dietTargetFat * 1.1) {
-      warnings.push({
-        type: "danger",
-        text: `Te excedes por ${(macros.fats - dietTargetFat).toFixed(1)}g de Grasas en esta comida (${dietTargetFat.toFixed(0)}g meta).`
-      });
-    }
-
-    // Kcal
-    if (macros.kcal < dietTargetKcal * 0.9) {
-      warnings.push({
-        type: "warning",
-        text: `Esta comida aporta pocas calorías: ${macros.kcal} kcal (meta: ${dietTargetKcal.toFixed(0)} kcal).`
-      });
-    } else if (macros.kcal > dietTargetKcal * 1.1) {
-      warnings.push({
-        type: "danger",
-        text: `Esta comida excede tus requerimientos calóricos: ${macros.kcal} kcal (meta: ${dietTargetKcal.toFixed(0)} kcal).`
-      });
-    }
-  }
-
-  const handleSliderChange = useCallback((ingredientId, newGrams) => {
-    setGramsMap((prev) => ({ ...prev, [ingredientId]: newGrams }));
+  const handlePortionChange = useCallback((id, change) => {
+    setPortionsMap(prev => {
+      const current = prev[id] || 0;
+      const next = Math.max(0, current + change);
+      return { ...prev, [id]: next };
+    });
   }, []);
 
-  // Autofill macros from the active nutritional plan
-  const handleLoadPlanMacros = () => {
-    if (!activePlan) return;
-    const divisor = activePlan.periodType === "day" ? 3 : 1;
-    setTargetProtein(Math.round(activePlan.proteinLimit / divisor).toString());
-    setTargetCarbs(Math.round(activePlan.carbLimit / divisor).toString());
-    setTargetFat(Math.round(activePlan.fatLimit / divisor).toString());
+  const handleOptionToggle = (option) => {
+    setSelectedOptions((prev) => {
+      const exists = prev.some((o) => o.name === option.name);
+      if (exists) return prev.filter((o) => o.name !== option.name);
+      return [...prev, option];
+    });
   };
 
-  // Solve portion weights mathematically to match target macros
-  const handleCalculatePortions = () => {
-    if (ingredients.length === 0) return;
+  // Local Pricing and Macros Calculation based on unified schema
+  const { finalPrice, macros } = useMemo(() => {
+    let totalPrecio = recipe?.fixedCost || 0;
+    const totalMacros = { protein: 0, carbs: 0, fats: 0, kcal: 0 };
 
-    const pTarget = parseFloat(targetProtein) || 0;
-    const cTarget = parseFloat(targetCarbs) || 0;
-    const fTarget = parseFloat(targetFat) || 0;
+    recipeIngredients.forEach(ing => {
+      const portions = portionsMap[ing.id] || 0;
+      totalPrecio += portions * (ing.pricePerPortion || 0);
 
-    // Identify primary source of protein, carbs, fat
-    let bestProteinSource = null;
-    let bestCarbSource = null;
-    let bestFatSource = null;
-
-    let maxP = -1, maxC = -1, maxF = -1;
-
-    ingredients.forEach(ing => {
-      if (ing.proteinPerGram > maxP) {
-        maxP = ing.proteinPerGram;
-        bestProteinSource = ing;
-      }
-      if (ing.carbPerGram > maxC) {
-        maxC = ing.carbPerGram;
-        bestCarbSource = ing;
-      }
-      if (ing.fatPerGram > maxF) {
-        maxF = ing.fatPerGram;
-        bestFatSource = ing;
-      }
+      const grams = portions * (ing.gramsPerPortion || 0);
+      const m = ing.macrosPerGram || { protein: 0, carbs: 0, fats: 0, kcal: 0 };
+      
+      totalMacros.protein += grams * (m.protein || 0);
+      totalMacros.carbs += grams * (m.carbs || 0);
+      totalMacros.fats += grams * (m.fats || 0);
+      totalMacros.kcal += grams * (m.kcal || 0);
     });
 
-    const nextGramsMap = { ...gramsMap };
+    selectedOptions.forEach(opt => { totalPrecio += opt.price || 0; });
 
-    ingredients.forEach(ing => {
-      const limits = recipe.ingredientLimits?.[ing.id] || {};
-      const minG = limits.min !== undefined ? limits.min : ing.minGrams;
-      const maxG = limits.max !== undefined ? limits.max : ing.maxGrams;
-      const defG = limits.default !== undefined ? limits.default : ing.defaultGrams;
+    return { 
+      finalPrice: Math.max(totalPrecio, 0),
+      macros: totalMacros
+    };
+  }, [portionsMap, recipeIngredients, recipe, selectedOptions]);
 
-      let calculatedGrams = defG;
-
-      if (bestProteinSource && ing.id === bestProteinSource.id && bestProteinSource.proteinPerGram > 0) {
-        calculatedGrams = Math.round(pTarget / bestProteinSource.proteinPerGram);
-      } else if (bestCarbSource && ing.id === bestCarbSource.id && bestCarbSource.carbPerGram > 0) {
-        calculatedGrams = Math.round(cTarget / bestCarbSource.carbPerGram);
-      } else if (bestFatSource && ing.id === bestFatSource.id && bestFatSource.fatPerGram > 0) {
-        calculatedGrams = Math.round(fTarget / bestFatSource.fatPerGram);
-      }
-
-      // Clamp portion weight between recipe-specific limits
-      nextGramsMap[ing.id] = Math.max(minG, Math.min(maxG, calculatedGrams));
-    });
-
-    setGramsMap(nextGramsMap);
-    alert("¡Gramaje recalculado con éxito para acoplarse a tus macros objetivo!");
-  };
+  const dietTargetProtein = activePlan ? (activePlan.periodType === "day" ? activePlan.proteinLimit / 3 : activePlan.proteinLimit) : 0;
+  const dietTargetCarbs = activePlan ? (activePlan.periodType === "day" ? activePlan.carbLimit / 3 : activePlan.carbLimit) : 0;
+  const dietTargetFat = activePlan ? (activePlan.periodType === "day" ? activePlan.fatLimit / 3 : activePlan.fatLimit) : 0;
 
   const handleAction = async () => {
-    if (!recipe || ingredients.length === 0) return;
-
+    if (!recipe || recipeIngredients.length === 0) return;
     setIsSubmitting(true);
     setSubmitError(null);
+
+    const breakdown = recipeIngredients
+      .filter(ing => (portionsMap[ing.id] || 0) > 0)
+      .map(ing => ({
+        id: ing.id,
+        name: ing.name,
+        grams: (portionsMap[ing.id] || 0) * (ing.gramsPerPortion || 1)
+      }));
 
     const customizedItem = {
       recipeId: recipe.id,
       recipeName: recipe.name,
       imageUrl: recipe.imageUrl,
-      gramsMap: { ...gramsMap },
-      finalPrice: finalPrice,
+      portionsMap: { ...portionsMap },
+      finalPrice,
       macros: { ...macros },
-      breakdown: [...breakdown],
-      ingredientCost,
-      productionCost,
-      selectedOptions: selectedOptions
+      selectedOptions,
+      breakdown // Included for CartScreen compatibility
     };
 
     try {
       if (activeRole === "nutriologist" && patientSelector) {
-        // Mode: Send Prescription to Patient
         const res = await sendPrescription(
           patientSelector.patientEmail,
           recipe.id,
           recipe.name,
           recipe.imageUrl,
-          gramsMap,
+          portionsMap,
           finalPrice,
           macros,
           breakdown
         );
-        if (res.success) {
-          setShowSuccessModal(true);
-        } else {
-          setSubmitError("No se pudo enviar la receta.");
-        }
+        if (res.success) setShowSuccessModal(true);
+        else setSubmitError("No se pudo enviar la receta.");
       } else {
-        // Mode: Add to Cart
-        if (prescriptionIdFromState) {
-          await redeemPrescription(prescriptionIdFromState);
-        }
         addToCart(customizedItem);
         setShowSuccessModal(true);
       }
     } catch (err) {
-      console.error("Error executing action:", err);
+      console.error(err);
       setSubmitError("No se pudo procesar tu solicitud.");
     } finally {
       setIsSubmitting(false);
@@ -551,7 +238,6 @@ export default function CustomDishScreen() {
   const handleGoBack = () => {
     setShowSuccessModal(false);
     if (activeRole === "nutriologist" && patientSelector && showSuccessModal) {
-      // Clear patient selector after successful prescription and go to dashboard
       setPatientSelector(null);
       history.push("/nutri-dashboard");
     } else {
@@ -564,20 +250,27 @@ export default function CustomDishScreen() {
     history.push("/cart");
   };
 
-  // ─── RENDERS CONDICIONALES ─────────────────────────────────────────────────
-  if (loading) return <LoadingScreen />;
-  if (error) return <ErrorScreen message={error} onGoBack={() => history.push("/home")} />;
-  if (!recipe) return null;
+  if (recipeLoading || menuLoading) return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-zinc-950 gap-4">
+      <div className="w-10 h-10 border-4 border-zinc-800 border-t-orange-500 rounded-full animate-spin"></div>
+      <p className="text-zinc-500 font-bold text-sm tracking-widest uppercase">Cargando Menú...</p>
+    </div>
+  );
+
+  if (recipeError || !recipe) return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-zinc-950 gap-4">
+      <p className="text-red-500 font-bold">⚠️ {recipeError || "Receta no encontrada"}</p>
+      <button className="bg-zinc-800 text-white font-bold px-6 py-3 rounded-xl" onClick={() => history.push("/home")}>Volver al Inicio</button>
+    </div>
+  );
 
   const isPrescribing = activeRole === "nutriologist" && patientSelector;
-  const restaurant = restaurants?.find(r => r.id === recipe.restaurantId);
 
   return (
     <IonPage>
-      <IonContent scrollY={true}>
-        <div style={styles.screen}>
+      <IonContent scrollY={true} className="bg-zinc-950">
+        <div className="bg-zinc-950 min-h-screen text-white pb-40 font-sans">
           
-          {/* Modal de éxito */}
           {showSuccessModal && (
             <OrderSuccessModal
               isPrescription={isPrescribing}
@@ -588,1069 +281,143 @@ export default function CustomDishScreen() {
             />
           )}
 
-          {/* Floating Back Button */}
-          <button style={styles.floatingBackBtn} onClick={() => history.push("/home")}>
-            <IonIcon icon={arrowBackOutline} style={styles.backIcon} />
+          <button 
+            className="absolute top-6 left-6 z-50 w-12 h-12 rounded-full bg-black/50 backdrop-blur-lg border border-white/10 flex items-center justify-center text-white transition-transform active:scale-95"
+            onClick={() => history.push("/home")}
+          >
+            <IonIcon icon={arrowBackOutline} className="text-2xl" />
           </button>
 
-          {/* ── HERO: Imagen + nombre del platillo ── */}
-          <div style={styles.hero}>
-            <img
-              src={recipe.imageUrl}
-              alt={recipe.name}
-              style={styles.heroImage}
-              onError={(e) => { e.target.style.display = "none"; }}
-            />
-            <div style={styles.heroOverlay} />
-            <div style={styles.heroContent}>
-              <span style={{ 
-                ...styles.heroEyebrow,
-                color: isPrescribing ? "#A78BFA" : "#F97316"
-              }}>
-                {isPrescribing ? `🩺 Recetando a ${patientSelector.patientName}` : "Personaliza tu platillo"}
-              </span>
-              <h1 style={styles.heroTitle}>{recipe.name}</h1>
-              <span style={styles.heroPrepTime}>
-                ⏱ {recipe.estimatedPrepTime} min de preparación · {restaurant ? restaurant.name : "Nomi Kitchen"}
-              </span>
+          {/* 1. Header & Dish Info */}
+          <div className="relative h-80 w-full max-w-[480px] mx-auto overflow-hidden">
+            <img src={recipe.imageUrl} alt={recipe.name} className="w-full h-full object-cover scale-105" onError={(e) => { e.target.style.display = "none"; }} />
+            <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/60 to-black/20"></div>
+            <div className="absolute bottom-8 left-6 right-6">
+               <p className="text-orange-500 text-xs font-black tracking-widest uppercase mb-2 drop-shadow-md">
+                 {isPrescribing ? `🩺 Recetando a ${patientSelector.patientName}` : recipe.category || "Personalizar"}
+               </p>
+               <h1 className="text-4xl font-black text-white leading-tight mb-2 tracking-tighter drop-shadow-lg">{recipe.name}</h1>
+               <div className="flex items-baseline gap-1 mt-2 drop-shadow-md">
+                 <span className="text-2xl font-bold text-orange-500">$</span>
+                 <span className="text-6xl font-black text-orange-500 tracking-tighter">{finalPrice.toFixed(2)}</span>
+               </div>
             </div>
           </div>
 
-          {/* ── PRECIO CENTRAL (firma visual) ── */}
-          <div style={styles.priceSection}>
-            <div style={styles.pricePill}>
-              <span style={styles.priceCurrency}>$</span>
-              <span style={styles.priceAmount}>
-                {finalPrice.toFixed(2)}
-              </span>
-              <span style={styles.priceCurrency}>MXN</span>
-            </div>
-            <p style={styles.priceCaption}>
-              {isPrescribing ? "Costo aproximado para el paciente" : "Precio final · se actualiza en tiempo real"}
-            </p>
-          </div>
-
-          {/* ── MACROS TOTALES ── */}
-          <div style={styles.macrosSection}>
-            <MacroBadge
-              label="Proteína"
-              value={macros.protein}
-              unit="g"
-              color="#F97316"
-            />
-            <MacroBadge
-              label="Carbos"
-              value={macros.carbs}
-              unit="g"
-              color="#FACC15"
-            />
-            <MacroBadge
-              label="Grasas"
-              value={macros.fats}
-              unit="g"
-              color="#A78BFA"
-            />
-            <MacroBadge
-              label="Calorías"
-              value={macros.kcal}
-              unit="kcal"
-              color="#34D399"
-            />
-          </div>
-
-          {/* ── ALINEACIÓN CON LA DIETA (REAL-TIME ALERTS) ── */}
-          {activePlan && (
-            <div style={styles.dietAlertCard}>
-              <div style={styles.dietAlertHeader}>
-                <span>{statusLabel}</span>
-                <span style={{
-                  ...styles.dietPill,
-                  backgroundColor: warnings.length === 0 ? "rgba(52, 211, 153, 0.1)" : "rgba(249, 115, 22, 0.1)",
-                  color: warnings.length === 0 ? "#34D399" : "#F97316"
-                }}>
-                  {warnings.length === 0 ? "Alineado ✅" : "Desviaciones ⚠️"}
-                </span>
-              </div>
-              <div style={styles.dietAlertContent}>
-                {warnings.length === 0 ? (
-                  <div style={{ ...styles.warningItem, borderLeft: '4px solid #34D399', display: 'flex', alignItems: 'center' }}>
-                    <span style={{ marginRight: 8 }}>🎉</span>
-                    <span style={{ fontSize: 13, color: '#E2E8F0', lineHeight: '1.4' }}>¡Tu personalización cumple al 100% con los macros recomendados por tu nutriólogo!</span>
+          <div className="max-w-[480px] mx-auto">
+            {/* 2. Global Macro Panel */}
+            <div className="px-6 -mt-4 mb-8 relative z-10">
+              <div className="bg-zinc-900 rounded-[28px] p-6 shadow-2xl border border-zinc-800/80 backdrop-blur-xl">
+                {activePlan ? (
+                  <div className="space-y-5">
+                    <div className="flex justify-between items-center mb-4">
+                       <h3 className="text-white font-black text-lg tracking-tight">Smart Dashboard</h3>
+                       <span className="text-[10px] bg-orange-500/20 text-orange-400 font-bold px-2.5 py-1.5 rounded-md tracking-widest uppercase border border-orange-500/20">Dieta</span>
+                    </div>
+                    <MacroProgressBar label="Proteína" current={macros.protein} target={dietTargetProtein} colorClass="bg-orange-500" />
+                    <MacroProgressBar label="Carbohidratos" current={macros.carbs} target={dietTargetCarbs} colorClass="bg-orange-500" />
+                    <MacroProgressBar label="Grasas" current={macros.fats} target={dietTargetFat} colorClass="bg-orange-500" />
                   </div>
                 ) : (
-                  warnings.map((w, idx) => {
-                    const color = w.type === "warning" ? "#F59E0B" : "#EF4444";
-                    const icon = w.type === "warning" ? "⚠️" : "🚨";
-                    return (
-                      <div key={idx} style={{ ...styles.warningItem, borderLeft: `4px solid ${color}`, display: 'flex', alignItems: 'center' }}>
-                        <span style={{ marginRight: 8 }}>{icon}</span>
-                        <span style={{ fontSize: 13, color: '#E2E8F0', lineHeight: '1.4' }}>{w.text}</span>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center mb-2">
+                       <h3 className="text-white font-black text-lg tracking-tight">Resumen Nutricional</h3>
+                       <span className="text-[10px] bg-zinc-800 text-zinc-300 font-bold px-2.5 py-1.5 rounded-md tracking-widest uppercase">Libre</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <div className="flex-1 bg-zinc-950 px-3 py-4 rounded-2xl border border-zinc-800/80 text-center flex flex-col items-center justify-center">
+                          <p className="text-zinc-500 text-[11px] uppercase font-bold tracking-widest mb-1.5">Prot</p>
+                          <p className="text-white font-black text-2xl">{macros.protein.toFixed(0)}<span className="text-sm text-zinc-500 ml-0.5">g</span></p>
                       </div>
-                    );
-                  })
+                      <div className="flex-1 bg-zinc-950 px-3 py-4 rounded-2xl border border-zinc-800/80 text-center flex flex-col items-center justify-center">
+                          <p className="text-zinc-500 text-[11px] uppercase font-bold tracking-widest mb-1.5">Carb</p>
+                          <p className="text-white font-black text-2xl">{macros.carbs.toFixed(0)}<span className="text-sm text-zinc-500 ml-0.5">g</span></p>
+                      </div>
+                      <div className="flex-1 bg-zinc-950 px-3 py-4 rounded-2xl border border-zinc-800/80 text-center flex flex-col items-center justify-center">
+                          <p className="text-zinc-500 text-[11px] uppercase font-bold tracking-widest mb-1.5">Grasa</p>
+                          <p className="text-white font-black text-2xl">{macros.fats.toFixed(0)}<span className="text-sm text-zinc-500 ml-0.5">g</span></p>
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
-          )}
 
-          {/* ── ADJUST PORTIONS BY TARGET MACROS (NUTRITIONAL PLAN ALIGNED) ── */}
-          <div style={styles.adjustSection}>
-            <button 
-              onClick={() => setShowMacroPanel(!showMacroPanel)} 
-              style={styles.adjustHeaderBtn}
-            >
-              ⚙️ {showMacroPanel ? "Ocultar Calculadora de Macros" : "Ajustar por Macros Objetivo (Plan)"}
-            </button>
-
-            {showMacroPanel && (
-              <div style={styles.adjustPanelCard}>
-                <h3 style={styles.adjustPanelTitle}>🎯 Configura tus macros objetivo</h3>
-                <p style={styles.adjustPanelDesc}>
-                  Calcula de forma automática los gramos de ingredientes necesarios para alcanzar los macros que tú o tu nutriólogo decidan.
-                </p>
-
-
-
-                {/* Portions equivalents selector */}
-                <div style={styles.portionsCard}>
-                  <p style={styles.portionsTitle}>📈 Prescribir por Porciones (Equivalentes)</p>
-                  <p style={styles.portionsSubtitle}>
-                    Selecciona equivalentes para estimar macros automáticamente.
-                  </p>
-                  <div style={styles.portionsGrid}>
-                    <div style={styles.portionCol}>
-                      <label style={styles.portionLabel}>🥩 Proteínas</label>
-                      <div style={styles.portionCounter}>
-                        <button type="button" style={styles.counterBtn} onClick={() => {
-                          const val = Math.max(0, portProtein - 1);
-                          setPortProtein(val);
-                          updateMacrosFromPortions(val, portCarb, portVeg, portFat);
-                        }}>-</button>
-                        <span style={styles.counterVal}>{portProtein}</span>
-                        <button type="button" style={styles.counterBtn} onClick={() => {
-                          const val = portProtein + 1;
-                          setPortProtein(val);
-                          updateMacrosFromPortions(val, portCarb, portVeg, portFat);
-                        }}>+</button>
-                      </div>
-                    </div>
-
-                    <div style={styles.portionCol}>
-                      <label style={styles.portionLabel}>🍞 Carbohidratos</label>
-                      <div style={styles.portionCounter}>
-                        <button type="button" style={styles.counterBtn} onClick={() => {
-                          const val = Math.max(0, portCarb - 1);
-                          setPortCarb(val);
-                          updateMacrosFromPortions(portProtein, val, portVeg, portFat);
-                        }}>-</button>
-                        <span style={styles.counterVal}>{portCarb}</span>
-                        <button type="button" style={styles.counterBtn} onClick={() => {
-                          const val = portCarb + 1;
-                          setPortCarb(val);
-                          updateMacrosFromPortions(portProtein, val, portVeg, portFat);
-                        }}>+</button>
-                      </div>
-                    </div>
-
-                    <div style={styles.portionCol}>
-                      <label style={styles.portionLabel}>🥦 Verduras</label>
-                      <div style={styles.portionCounter}>
-                        <button type="button" style={styles.counterBtn} onClick={() => {
-                          const val = Math.max(0, portVeg - 1);
-                          setPortVeg(val);
-                          updateMacrosFromPortions(portProtein, portCarb, val, portFat);
-                        }}>-</button>
-                        <span style={styles.counterVal}>{portVeg}</span>
-                        <button type="button" style={styles.counterBtn} onClick={() => {
-                          const val = portVeg + 1;
-                          setPortVeg(val);
-                          updateMacrosFromPortions(portProtein, portCarb, val, portFat);
-                        }}>+</button>
-                      </div>
-                    </div>
-
-                    <div style={styles.portionCol}>
-                      <label style={styles.portionLabel}>🥑 Grasas</label>
-                      <div style={styles.portionCounter}>
-                        <button type="button" style={styles.counterBtn} onClick={() => {
-                          const val = Math.max(0, portFat - 1);
-                          setPortFat(val);
-                          updateMacrosFromPortions(portProtein, portCarb, portVeg, val);
-                        }}>-</button>
-                        <span style={styles.counterVal}>{portFat}</span>
-                        <button type="button" style={styles.counterBtn} onClick={() => {
-                          const val = portFat + 1;
-                          setPortFat(val);
-                          updateMacrosFromPortions(portProtein, portCarb, portVeg, val);
-                        }}>+</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div style={styles.macroFormRow}>
-                  <div style={styles.macroFormGroup}>
-                    <label style={styles.macroFormLabel}>Prot (g)</label>
-                    <input 
-                      type="number" 
-                      value={targetProtein} 
-                      onChange={(e) => setTargetProtein(e.target.value)} 
-                      style={styles.macroFormInput} 
-                    />
-                  </div>
-                  <div style={styles.macroFormGroup}>
-                    <label style={styles.macroFormLabel}>Carb (g)</label>
-                    <input 
-                      type="number" 
-                      value={targetCarbs} 
-                      onChange={(e) => setTargetCarbs(e.target.value)} 
-                      style={styles.macroFormInput} 
-                    />
-                  </div>
-                  <div style={styles.macroFormGroup}>
-                    <label style={styles.macroFormLabel}>Grasa (g)</label>
-                    <input 
-                      type="number" 
-                      value={targetFat} 
-                      onChange={(e) => setTargetFat(e.target.value)} 
-                      style={styles.macroFormInput} 
-                    />
-                  </div>
-                </div>
-
-                <button 
-                  type="button" 
-                  onClick={handleCalculatePortions} 
-                  style={styles.calculateBtn}
-                >
-                  Calcular Porciones
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* ── SLIDERS DE INGREDIENTES ── */}
-          <div style={styles.slidersSection}>
-            <h2 style={styles.sectionTitle}>Macros de precisión</h2>
-            <p style={styles.sectionSubtitle}>
-              Mueve los deslizadores para ajustar los gramos exactos de la receta.
-            </p>
-
-            {selectedIngredients.map((effectiveIngredient) => (
-              <IngredientSlider
-                key={effectiveIngredient.id}
-                ingredient={effectiveIngredient}
-                grams={effectiveIngredient.grams}
-                onChange={handleSliderChange}
-                isExcluded={effectiveIngredient.isExcluded}
-                onToggleExclude={handleToggleExclude}
-              />
-            ))}
-          </div>
-
-          {/* ── OPCIONES ADICIONALES (EXTRAS / SUSTITUTOS) ── */}
-          {recipe.options && recipe.options.length > 0 && (
-            <div style={styles.optionsSection}>
-              <h2 style={styles.sectionTitle}>Adicionales / Extras</h2>
-              <p style={styles.sectionSubtitle}>
-                Selecciona extras o sustitutos para personalizar aún más tu platillo.
-              </p>
-              <div style={styles.optionsList}>
-                {recipe.options.map((opt, idx) => {
-                  const isChecked = selectedOptions.some(o => o.name === opt.name);
-                  return (
-                    <div 
-                      key={idx} 
-                      onClick={() => handleOptionToggle(opt)}
-                      style={{
-                        ...styles.optionCard,
-                        borderColor: isChecked ? '#F97316' : '#2D2D37',
-                        backgroundColor: isChecked ? 'rgba(249, 115, 22, 0.05)' : '#131316',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        padding: '16px',
-                        borderRadius: '12px',
-                        border: '1px solid',
-                        marginBottom: '10px',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <input 
-                          type="checkbox" 
-                          checked={isChecked}
-                          onChange={() => {}} // handled by card click
-                          style={{ width: 18, height: 18, accentColor: '#F97316' }}
-                        />
+            {/* 3. Lista de Ingredientes (Steppers) */}
+            <div className="px-6">
+              <h2 className="text-xl font-black text-white mb-5 tracking-tight">Personalizar Porciones</h2>
+              
+              {recipeIngredients.map(ing => {
+                const portions = portionsMap[ing.id] || 0;
+                return (
+                  <div key={ing.id} className={`bg-zinc-900 rounded-[24px] p-5 mb-4 border border-zinc-800/50 transition-opacity duration-300 ${portions === 0 ? 'opacity-50 grayscale' : 'opacity-100'}`}>
+                      <div className="flex justify-between items-start mb-4">
                         <div>
-                          <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#F8FAFC' }}>{opt.name}</p>
-                          <span style={{ fontSize: 11, color: opt.type === 'substitute' ? '#A78BFA' : '#34D399' }}>
-                            {opt.type === 'substitute' ? 'Sustituto' : 'Extra'}
-                          </span>
+                            <span className="text-white font-bold text-lg block mb-1">{ing.name}</span>
+                            <span className="text-zinc-400 text-xs font-semibold uppercase tracking-widest">
+                              {ing.foodGroup}
+                            </span>
+                        </div>
+                        <div className="flex flex-col items-end">
+                            <span className="text-orange-500 font-black text-base">+${ing.pricePerPortion}</span>
+                            <span className="text-zinc-500 text-[10px] font-bold uppercase tracking-wider mt-1">/ {ing.gramsPerPortion}g</span>
                         </div>
                       </div>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: '#F97316' }}>
-                        +${opt.price} MXN
-                      </span>
-                    </div>
-                  );
-                })}
+
+                      <div className="flex items-center justify-between bg-zinc-950 p-2 rounded-2xl border border-zinc-800/50">
+                        <button 
+                          onClick={() => handlePortionChange(ing.id, -0.5)}
+                          className="w-12 h-12 flex items-center justify-center rounded-xl bg-zinc-900 text-white active:scale-90 transition-transform disabled:opacity-50"
+                          disabled={portions === 0}
+                        >
+                          <IonIcon icon={removeOutline} className="text-2xl" />
+                        </button>
+                        
+                        <div className="flex flex-col items-center w-20">
+                          <span className="text-2xl font-black text-white leading-none">{portions}</span>
+                          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mt-1">Porciones</span>
+                        </div>
+
+                        <button 
+                          onClick={() => handlePortionChange(ing.id, 0.5)}
+                          className="w-12 h-12 flex items-center justify-center rounded-xl bg-orange-500 text-black active:scale-90 transition-transform"
+                        >
+                          <IonIcon icon={addOutline} className="text-2xl" />
+                        </button>
+                      </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {submitError && (
+              <div className="mx-6 mt-6 bg-red-500/10 border border-red-500/30 rounded-2xl p-4">
+                <span className="text-red-400 text-sm font-bold">⚠️ {submitError}</span>
               </div>
-            </div>
-          )}
-
-          {/* ── RESUMEN DE COSTOS (transparencia) ── */}
-          <div style={styles.costBreakdown}>
-            <h3 style={styles.costBreakdownTitle}>Desglose del Costo</h3>
-            <div style={styles.costRow}>
-              <span style={styles.costLabel}>Ingredientes gramados</span>
-              <span style={styles.costValue}>${ingredientCost.toFixed(2)}</span>
-            </div>
-            <div style={styles.costRow}>
-              <span style={styles.costLabel}>Empaque y preparación fija</span>
-              <span style={styles.costValue}>${productionCost.toFixed(2)}</span>
-            </div>
-            <div style={styles.costDivider} />
-            <div style={styles.costRow}>
-              <span style={{ ...styles.costLabel, color: "#F5F5F0", fontWeight: 700 }}>
-                Total sugerido
-              </span>
-              <span style={{ ...styles.costValue, color: "#F97316", fontWeight: 700 }}>
-                ${finalPrice.toFixed(2)} MXN
-              </span>
-            </div>
+            )}
+            
+            <div className="h-10"></div>
           </div>
 
-          {/* ── ERROR DE ENVÍO ── */}
-          {submitError && (
-            <div style={styles.errorBanner}>
-              <span>⚠️ {submitError}</span>
+          {/* CTA Button Fixed Bottom */}
+          <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-[#09090b] via-[#09090b]/90 to-transparent z-50 flex flex-col justify-end pointer-events-none pb-[calc(1.5rem+env(safe-area-inset-bottom,20px))]">
+            <div className="w-full max-w-[480px] mx-auto pointer-events-auto">
+              <button
+                onClick={handleAction}
+                disabled={isSubmitting}
+                className="w-full bg-orange-600 disabled:bg-zinc-800 disabled:text-zinc-500 text-white font-black text-lg py-5 rounded-[24px] shadow-[0_10px_40px_rgba(234,88,12,0.4)] transition-all hover:bg-orange-500 hover:-translate-y-1 active:translate-y-0 active:scale-[0.98]"
+              >
+                {isSubmitting
+                  ? "Procesando..."
+                  : isPrescribing
+                  ? `Enviar Receta · $${finalPrice.toFixed(2)}`
+                  : `Añadir · $${finalPrice.toFixed(2)}`}
+              </button>
             </div>
-          )}
-
-          {/* ── BOTÓN ACCIÓN CENTRAL ── */}
-          <div style={styles.ctaSection}>
-            <button
-              style={{
-                ...styles.ctaButton,
-                backgroundColor: isPrescribing ? "#A78BFA" : "#F97316",
-                opacity: isSubmitting ? 0.6 : 1,
-                cursor: isSubmitting ? "not-allowed" : "pointer",
-              }}
-              onClick={handleAction}
-              disabled={isSubmitting}
-            >
-              {isSubmitting
-                ? "Procesando..."
-                : isPrescribing
-                ? `Enviar Receta · $${finalPrice.toFixed(2)} MXN`
-                : `Añadir al Carrito · $${finalPrice.toFixed(2)}`}
-            </button>
-            <p style={styles.ctaCaption}>
-              {isPrescribing
-                ? "Se guardará en el buzón médico del paciente de forma instantánea"
-                : "Puedes continuar modificando o agregar más platillos a tu orden"}
-            </p>
           </div>
-
-          {/* Espaciado inferior para móvil */}
-          <div style={{ height: 180 }} />
-
-          {/* Estilos globales del slider nativo */}
-          <style>{`
-            input[type="range"] {
-              -webkit-appearance: none;
-              appearance: none;
-              width: 100%;
-              height: 4px;
-              background: #2D2D37;
-              outline: none;
-              cursor: pointer;
-              border-radius: 2px;
-            }
-            input[type="range"]::-webkit-slider-thumb {
-              -webkit-appearance: none;
-              appearance: none;
-              width: 26px;
-              height: 26px;
-              border-radius: 50%;
-              background: #F97316;
-              cursor: pointer;
-              border: 3px solid #131316;
-              box-shadow: 0 0 10px rgba(249, 115, 22, 0.4);
-              transition: transform 0.15s ease, background-color 0.15s ease;
-            }
-            input[type="range"]::-webkit-slider-thumb:active {
-              transform: scale(1.2);
-              background: #FFA366;
-            }
-            input[type="range"]::-moz-range-thumb {
-              width: 26px;
-              height: 26px;
-              border-radius: 50%;
-              background: #F97316;
-              cursor: pointer;
-              border: 3px solid #131316;
-              box-shadow: 0 0 10px rgba(249, 115, 22, 0.4);
-            }
-          `}</style>
+          
         </div>
       </IonContent>
     </IonPage>
   );
 }
-
-// ─── SISTEMA DE ESTILOS ───────────────────────────────────────────────────────
-
-const styles = {
-  screen: {
-    backgroundColor: "#0B0B0C",
-    minHeight: "100vh",
-    maxWidth: 480,
-    margin: "0 auto",
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-    color: "#F8FAFC",
-    position: "relative"
-  },
-  floatingBackBtn: {
-    position: "absolute",
-    top: 20,
-    left: 20,
-    zIndex: 99,
-    width: 44,
-    height: 44,
-    borderRadius: "50%",
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
-    backdropFilter: "blur(6px)",
-    border: "1px solid rgba(255, 255, 255, 0.1)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    color: "#F8FAFC"
-  },
-  backIcon: {
-    fontSize: 20
-  },
-  backBtnInline: {
-    backgroundColor: "rgba(255,255,255,0.05)",
-    border: "1px solid rgba(255,255,255,0.1)",
-    borderRadius: 12,
-    color: "#F8FAFC",
-    padding: "10px 20px",
-    fontSize: 14,
-    fontWeight: 600,
-    cursor: "pointer",
-    marginTop: 12
-  },
-  centered: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    height: "100vh",
-    backgroundColor: "#0B0B0C",
-    gap: 16,
-  },
-  spinner: {
-    width: 32,
-    height: 32,
-    border: "3px solid #1C1C24",
-    borderTop: "3px solid #F97316",
-    borderRadius: "50%",
-    animation: "spin 0.8s linear infinite",
-  },
-  loadingText: {
-    color: "#94A3B8",
-    fontSize: 14,
-    letterSpacing: "0.02em",
-  },
-
-  // Hero
-  hero: {
-    position: "relative",
-    height: 280,
-    overflow: "hidden",
-  },
-  heroImage: {
-    width: "100%",
-    height: "100%",
-    objectFit: "cover",
-  },
-  heroOverlay: {
-    position: "absolute",
-    inset: 0,
-    background:
-      "linear-gradient(to bottom, rgba(11,11,12,0.1) 0%, rgba(11,11,12,0.98) 100%)",
-  },
-  heroContent: {
-    position: "absolute",
-    bottom: 20,
-    left: 20,
-    right: 20,
-    display: "flex",
-    flexDirection: "column",
-    gap: 4,
-  },
-  heroEyebrow: {
-    fontSize: 11,
-    fontWeight: 700,
-    letterSpacing: "0.12em",
-    textTransform: "uppercase",
-  },
-  heroTitle: {
-    fontSize: 28,
-    fontWeight: 800,
-    color: "#F8FAFC",
-    margin: 0,
-    lineHeight: 1.2,
-    letterSpacing: "-0.02em",
-  },
-  heroPrepTime: {
-    fontSize: 11,
-    color: "#64748B",
-    marginTop: 4,
-  },
-
-  // Precio
-  priceSection: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    padding: "16px 20px 20px",
-    gap: 8,
-  },
-  pricePill: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: 4,
-  },
-  priceCurrency: {
-    fontSize: 20,
-    fontWeight: 400,
-    color: "#F97316",
-    paddingTop: 12,
-  },
-  priceAmount: {
-    fontSize: 72,
-    fontWeight: 800,
-    color: "#F97316",
-    lineHeight: 1,
-    letterSpacing: "-0.04em",
-  },
-  priceCaption: {
-    fontSize: 11,
-    color: "#64748B",
-    letterSpacing: "0.05em",
-    textTransform: "uppercase",
-    margin: 0,
-  },
-
-  // Macros
-  macrosSection: {
-    display: "flex",
-    justifyContent: "space-between",
-    padding: "0 20px 24px",
-    gap: 8,
-  },
-  macroBadge: {
-    flex: 1,
-    backgroundColor: "#131316",
-    border: "1px solid #222227",
-    borderRadius: 14,
-    padding: "12px 6px",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 2,
-  },
-  macroValue: {
-    fontSize: 18,
-    fontWeight: 700,
-    lineHeight: 1,
-  },
-  macroUnit: {
-    fontSize: 9,
-    color: "#64748B",
-    fontWeight: 400,
-  },
-  macroLabel: {
-    fontSize: 9,
-    color: "#94A3B8",
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-    marginTop: 4,
-    fontWeight: 600
-  },
-
-  // Sliders
-  slidersSection: {
-    padding: "0 20px",
-    display: "flex",
-    flexDirection: "column",
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 700,
-    color: "#F8FAFC",
-    margin: "0 0 4px 0",
-  },
-  sectionSubtitle: {
-    fontSize: 12,
-    color: "#94A3B8",
-    margin: "0 0 20px 0",
-    lineHeight: 1.4
-  },
-  sliderCard: {
-    backgroundColor: "#131316",
-    borderRadius: 20,
-    padding: "20px",
-    marginBottom: 16,
-    border: "1px solid #222227",
-  },
-  sliderHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 14,
-  },
-  ingredientName: {
-    fontSize: 16,
-    fontWeight: 700,
-    color: "#F8FAFC",
-  },
-  gramsDisplay: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: 2,
-    backgroundColor: "#0B0B0C",
-    padding: "6px 12px",
-    borderRadius: 10,
-    border: "1px solid #1C1C24"
-  },
-  gramsValue: {
-    fontSize: 18,
-    fontWeight: 800,
-    color: "#F97316",
-  },
-  gramsUnit: {
-    fontSize: 11,
-    color: "#64748B",
-    fontWeight: 500,
-  },
-  progressBarTrack: {
-    height: 4,
-    backgroundColor: "#222227",
-    borderRadius: 2,
-    marginBottom: 4,
-    overflow: "hidden",
-  },
-  progressBarFill: {
-    height: "100%",
-    backgroundColor: "#F97316",
-    borderRadius: 2,
-    transition: "width 0.1s ease",
-  },
-  sliderInput: {
-    width: "100%",
-    marginBottom: 6,
-  },
-  sliderLabels: {
-    display: "flex",
-    justifyContent: "space-between",
-    marginBottom: 14,
-  },
-  sliderLabelText: {
-    fontSize: 10,
-    color: "#64748B",
-    fontWeight: 500
-  },
-  ingNutrition: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 6,
-    paddingTop: 12,
-    borderTop: "1px solid #222227",
-  },
-  ingNutritionItem: {
-    fontSize: 10,
-    color: "#94A3B8",
-    backgroundColor: "#0B0B0C",
-    padding: "3px 8px",
-    borderRadius: 6,
-    border: "1px solid #1C1C24"
-  },
-
-  // Desglose de costos
-  costBreakdown: {
-    margin: "12px 20px 0",
-    backgroundColor: "#131316",
-    borderRadius: 20,
-    padding: "20px",
-    border: "1px solid #222227",
-  },
-  costBreakdownTitle: {
-    fontSize: 12,
-    fontWeight: 700,
-    color: "#64748B",
-    textTransform: "uppercase",
-    letterSpacing: "0.08em",
-    margin: "0 0 14px 0",
-  },
-  costRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  costLabel: {
-    fontSize: 13,
-    color: "#94A3B8",
-  },
-  costValue: {
-    fontSize: 13,
-    color: "#F8FAFC",
-    fontWeight: 600,
-  },
-  costDivider: {
-    height: 1,
-    backgroundColor: "#222227",
-    margin: "12px 0",
-  },
-
-  // Error
-  errorBanner: {
-    margin: "16px 20px 0",
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
-    border: "1px solid rgba(239, 68, 68, 0.3)",
-    borderRadius: 14,
-    padding: "12px 16px",
-    fontSize: 13,
-    color: "#EF4444",
-  },
-
-  // CTA
-  ctaSection: {
-    padding: "24px 20px 48px",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 8,
-  },
-  ctaButton: {
-    width: "100%",
-    color: "#000000",
-    border: "none",
-    borderRadius: 16,
-    padding: "18px 24px",
-    fontSize: 16,
-    fontWeight: 800,
-    letterSpacing: "-0.01em",
-    boxShadow: "0 6px 20px rgba(0, 0, 0, 0.3)",
-  },
-  ctaCaption: {
-    fontSize: 11,
-    color: "#64748B",
-    margin: 0,
-    lineHeight: 1.4,
-    textAlign: "center",
-  },
-
-  // Modal
-  modalOverlay: {
-    position: "fixed",
-    inset: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.9)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 1000,
-    padding: 20,
-    backdropFilter: "blur(4px)"
-  },
-  modalCard: {
-    backgroundColor: "#131316",
-    borderRadius: 24,
-    padding: "36px 24px",
-    width: "100%",
-    maxWidth: 360,
-    maxHeight: "90vh",
-    overflowY: "auto",
-    boxSizing: "border-box",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 12,
-    border: "1px solid #222227",
-    boxShadow: "0 15px 40px rgba(0,0,0,0.6)"
-  },
-  modalIcon: {
-    fontSize: 48,
-    lineHeight: 1,
-    marginBottom: 8
-  },
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: 800,
-    color: "#F8FAFC",
-    margin: 0,
-    letterSpacing: "-0.01em"
-  },
-  modalSubtitle: {
-    fontSize: 13,
-    color: "#94A3B8",
-    margin: 0,
-    textAlign: "center",
-    lineHeight: 1.5,
-    padding: "0 8px"
-  },
-  modalOrderId: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    backgroundColor: "#0B0B0C",
-    borderRadius: 14,
-    padding: "12px 24px",
-    gap: 4,
-    width: "100%",
-    marginTop: 8,
-    border: "1px solid #222227"
-  },
-  modalOrderIdLabel: {
-    fontSize: 10,
-    color: "#64748B",
-    textTransform: "uppercase",
-    letterSpacing: "0.1em",
-  },
-  modalOrderIdValue: {
-    fontSize: 20,
-    fontWeight: 800,
-    color: "#F97316",
-  },
-  modalBtnColumn: {
-    width: "100%",
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
-    marginTop: 16
-  },
-  modalPrimaryButton: {
-    width: "100%",
-    backgroundColor: "#F97316",
-    color: "#000000",
-    border: "none",
-    borderRadius: 14,
-    padding: "15px",
-    fontSize: 14,
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-  modalSecondaryButton: {
-    width: "100%",
-    backgroundColor: "transparent",
-    color: "#94A3B8",
-    border: "1px solid #222227",
-    borderRadius: 14,
-    padding: "14px",
-    fontSize: 14,
-    fontWeight: 600,
-    cursor: "pointer",
-  },
-  adjustSection: {
-    padding: "0 20px",
-    marginBottom: 20,
-  },
-  adjustHeaderBtn: {
-    width: "100%",
-    backgroundColor: "rgba(249,115,22,0.1)",
-    border: "1px solid rgba(249,115,22,0.25)",
-    color: "#F97316",
-    borderRadius: 14,
-    padding: "14px",
-    fontSize: 13,
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-  adjustPanelCard: {
-    backgroundColor: "#131316",
-    border: "1px solid #222227",
-    borderRadius: 18,
-    padding: "16px",
-    marginTop: 10,
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-    textAlign: "left",
-  },
-  adjustPanelTitle: {
-    fontSize: 13,
-    fontWeight: 700,
-    color: "#F8FAFC",
-    margin: 0,
-  },
-  adjustPanelDesc: {
-    fontSize: 11,
-    color: "#64748B",
-    margin: 0,
-    lineHeight: 1.4,
-  },
-  loadPlanBtn: {
-    backgroundColor: "rgba(167, 139, 250, 0.15)",
-    border: "1px solid rgba(167, 139, 250, 0.25)",
-    color: "#A78BFA",
-    borderRadius: 10,
-    padding: "10px",
-    fontSize: 11,
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-  macroFormRow: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 10,
-  },
-  macroFormGroup: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-  },
-  macroFormLabel: {
-    fontSize: 11,
-    color: "#64748B",
-    fontWeight: 500,
-  },
-  macroFormInput: {
-    backgroundColor: "#0B0B0C",
-    border: "1px solid #222227",
-    borderRadius: 8,
-    color: "#FFF",
-    padding: "10px",
-    fontSize: 13,
-    outline: "none",
-  },
-  calculateBtn: {
-    backgroundColor: "#F97316",
-    color: "#000",
-    border: "none",
-    borderRadius: 10,
-    padding: "12px",
-    fontSize: 12,
-    fontWeight: 700,
-    cursor: "pointer",
-    marginTop: 4,
-  },
-  portionsCard: {
-    backgroundColor: "rgba(167, 139, 250, 0.04)",
-    border: "1px solid rgba(167, 139, 250, 0.15)",
-    borderRadius: 14,
-    padding: "12px",
-    marginBottom: "10px",
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-  },
-  portionsTitle: {
-    fontSize: 12,
-    fontWeight: 700,
-    color: "#C084FC",
-    margin: 0,
-  },
-  portionsSubtitle: {
-    fontSize: 10,
-    color: "#94A3B8",
-    margin: 0,
-    lineHeight: 1.3,
-  },
-  portionsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, 1fr)",
-    gap: "10px",
-    marginTop: "4px",
-  },
-  portionCol: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 4,
-  },
-  portionLabel: {
-    fontSize: 10,
-    color: "#E2E8F0",
-    fontWeight: 600,
-  },
-  portionCounter: {
-    display: "flex",
-    alignItems: "center",
-    backgroundColor: "#0B0B0C",
-    border: "1px solid rgba(167, 139, 250, 0.12)",
-    borderRadius: 8,
-    overflow: "hidden",
-  },
-  counterBtn: {
-    flex: 1,
-    backgroundColor: "transparent",
-    border: "none",
-    color: "#A78BFA",
-    fontSize: 14,
-    fontWeight: 700,
-    padding: "6px 0",
-    cursor: "pointer",
-    textAlign: "center",
-  },
-  counterVal: {
-    flex: 1.2,
-    fontSize: 12,
-    fontWeight: 700,
-    color: "#FFF",
-    textAlign: "center",
-  },
-  dietAlertCard: {
-    backgroundColor: "#131316",
-    border: "1px solid #202024",
-    borderRadius: "16px",
-    padding: "16px",
-    margin: "0 20px 20px 20px",
-  },
-  dietAlertHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "12px",
-    fontSize: "12px",
-    fontWeight: 700,
-    color: "#94A3B8",
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-  },
-  dietPill: {
-    backgroundColor: "rgba(249, 115, 22, 0.1)",
-    color: "#F97316",
-    padding: "3px 8px",
-    borderRadius: "20px",
-    fontSize: "10px",
-  },
-  dietAlertContent: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px",
-  },
-  warningItem: {
-    display: "flex",
-    alignItems: "center",
-    padding: "8px 12px",
-    backgroundColor: "rgba(255,255,255,0.02)",
-    borderRadius: "8px",
-    borderLeft: "4px solid",
-  },
-  optionsSection: {
-    margin: "0 20px 24px 20px",
-  },
-  optionsList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px",
-    marginTop: "12px",
-  }
-};

@@ -57,6 +57,18 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    // Master Ingredients rules
+    match /master_ingredients/{ingredientId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Restaurant Ingredients rules
+    match /restaurant_ingredients/{ingredientId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
     // Orders Collection rules
     // NOTE: KDS requires reading incoming orders and updating status (Ready/Delivered) without auth.
     match /orders/{orderId} {
@@ -92,6 +104,23 @@ service cloud.firestore {
     // Patients Collection rules
     match /patients/{patientId} {
       allow read, write: if isAuthenticated();
+    }
+
+    // Chats Collection rules — only conversation participants can read/write
+    // Conversation ID format: uid1_uid2 (sorted alphabetically)
+    match /chats/{convId} {
+      allow read, write: if isAuthenticated() &&
+        request.auth.uid in resource.data.participants;
+      allow create: if isAuthenticated() &&
+        request.auth.uid in request.resource.data.participants;
+
+      // Messages subcollection
+      match /messages/{msgId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() &&
+          request.resource.data.senderId == request.auth.uid;
+        allow update, delete: if false; // Messages are immutable
+      }
     }
   }
 }

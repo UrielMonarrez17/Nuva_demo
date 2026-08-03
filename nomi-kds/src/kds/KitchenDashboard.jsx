@@ -352,7 +352,7 @@ export default function KitchenDashboard({ selectedRestaurant = "all", onSelectR
 
   // Escuchar en tiempo real los ingredientes para conocer los defaultGrams de cada uno
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "ingredients"), (snapshot) => {
+    const unsubscribe = onSnapshot(collection(db, "master_ingredients"), (snapshot) => {
       if (!snapshot.empty) {
         const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setDbIngredients(list);

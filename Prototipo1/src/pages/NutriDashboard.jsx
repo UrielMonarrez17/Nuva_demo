@@ -1,6 +1,6 @@
 // src/pages/NutriDashboard.jsx
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useApp } from "../context/AppContext";
 import { useHistory } from "react-router-dom";
 import { IonPage, IonContent, IonIcon } from "@ionic/react";
@@ -16,7 +16,9 @@ import {
   closeOutline,
   calendarOutline,
   timeOutline,
-  notificationsOutline
+  notificationsOutline,
+  chatbubbleEllipsesOutline,
+  sendOutline
 } from "ionicons/icons";
 
 export default function NutriDashboard() {
@@ -27,9 +29,18 @@ export default function NutriDashboard() {
     prescriptions, 
     addPatient, 
     setPatientSelector,
-    createNutritionalPlan
+    createNutritionalPlan,
+    chatMessages,
+    activeChatPartnerId,
+    setActiveChatPartnerId,
+    sendChatMessage
   } = useApp();
   const history = useHistory();
+  const [showChatPanel, setShowChatPanel] = useState(false);
+  const [chatPatient, setChatPatient] = useState(null);
+  const [chatInput, setChatInput] = useState("");
+  const [sendingChat, setSendingChat] = useState(false);
+  const chatEndRef = useRef(null);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showPlanModal, setShowPlanModal] = useState(false);
@@ -363,7 +374,7 @@ export default function NutriDashboard() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                   <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
                     <button 
                       style={{ ...styles.prescribeBtn, flex: 1 }}
                       onClick={() => handlePrescribeToPatient(pat)}
@@ -378,6 +389,26 @@ export default function NutriDashboard() {
                       disabled={isPending}
                     >
                       📈 Recetar Macros
+                    </button>
+                    <button
+                      style={{
+                        ...styles.chatPatBtn,
+                        flex: 1
+                      }}
+                      onClick={() => {
+                        // Find uid from patients array if stored, else use patientId
+                        const patientUserId = pat.patientUserId || pat.patientId || null;
+                        if (!patientUserId) {
+                          alert("Este paciente aún no tiene una cuenta vinculada en Nomi.");
+                          return;
+                        }
+                        setChatPatient(pat);
+                        setActiveChatPartnerId(patientUserId);
+                        setShowChatPanel(true);
+                        setChatInput("");
+                      }}
+                    >
+                      💬 Chat
                     </button>
                   </div>
                 </div>
@@ -858,6 +889,139 @@ export default function NutriDashboard() {
             </div>
           )}
 
+          {/* ── Chat Panel Modal ── */}
+          {showChatPanel && chatPatient && (
+            <div style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 2000,
+              backgroundColor: "rgba(0,0,0,0.85)",
+              display: "flex",
+              alignItems: "flex-end",
+            }}>
+              <div style={{
+                width: "100%",
+                maxWidth: 480,
+                margin: "0 auto",
+                backgroundColor: "#0F0F13",
+                borderRadius: "24px 24px 0 0",
+                padding: "20px 18px",
+                display: "flex",
+                flexDirection: "column",
+                maxHeight: "85vh",
+                boxShadow: "0 -10px 40px rgba(0,0,0,0.5)"
+              }}>
+                {/* Header */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.08em" }}>CHAT CON PACIENTE</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: "#F8FAFC", marginTop: 2 }}>{chatPatient.patientName}</div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowChatPanel(false);
+                      setChatPatient(null);
+                      setActiveChatPartnerId(null);
+                    }}
+                    style={{ background: "none", border: "none", color: "#64748B", fontSize: 22, cursor: "pointer" }}
+                  >✕</button>
+                </div>
+
+                {/* Messages */}
+                <div style={{
+                  flex: 1,
+                  overflowY: "auto",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                  padding: "4px 0",
+                  minHeight: 200,
+                  maxHeight: "55vh"
+                }}>
+                  {chatMessages.length === 0 && (
+                    <div style={{ textAlign: "center", color: "#64748B", fontSize: 13, padding: "30px 0" }}>
+                      💬 Comienza la conversación con {chatPatient.patientName}
+                    </div>
+                  )}
+                  {chatMessages.map((msg) => {
+                    const isMine = msg.senderId === currentUser?.uid;
+                    return (
+                      <div key={msg.id} style={{ display: "flex", justifyContent: isMine ? "flex-end" : "flex-start" }}>
+                        <div style={{
+                          maxWidth: "75%",
+                          backgroundColor: isMine ? "#A78BFA" : "#1A1A20",
+                          border: isMine ? "none" : "1px solid #2A2A35",
+                          borderRadius: isMine ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+                          padding: "10px 14px",
+                        }}>
+                          <p style={{ margin: 0, fontSize: 13, color: "#F8FAFC", lineHeight: 1.5 }}>{msg.text}</p>
+                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", display: "block", textAlign: "right", marginTop: 3 }}>
+                            {msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }) : ""}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div ref={chatEndRef} />
+                </div>
+
+                {/* Input */}
+                <div style={{
+                  display: "flex",
+                  gap: 10,
+                  alignItems: "center",
+                  backgroundColor: "#1A1A20",
+                  borderRadius: 14,
+                  padding: "10px 14px",
+                  marginTop: 12,
+                  border: "1px solid #2A2A35"
+                }}>
+                  <input
+                    style={{
+                      flex: 1,
+                      backgroundColor: "transparent",
+                      border: "none",
+                      outline: "none",
+                      color: "#F8FAFC",
+                      fontSize: 14,
+                    }}
+                    placeholder="Escribe un mensaje..."
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={async (e) => {
+                      if (e.key === "Enter" && chatInput.trim() && !sendingChat) {
+                        setSendingChat(true);
+                        await sendChatMessage(activeChatPartnerId, chatInput.trim());
+                        setChatInput("");
+                        setSendingChat(false);
+                        setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+                      }
+                    }}
+                  />
+                  <button
+                    style={{
+                      width: 38, height: 38, borderRadius: "50%",
+                      backgroundColor: chatInput.trim() ? "#A78BFA" : "#2A2A35",
+                      border: "none", color: chatInput.trim() ? "#000" : "#64748B",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      cursor: "pointer", transition: "all 0.2s"
+                    }}
+                    onClick={async () => {
+                      if (!chatInput.trim() || sendingChat) return;
+                      setSendingChat(true);
+                      await sendChatMessage(activeChatPartnerId, chatInput.trim());
+                      setChatInput("");
+                      setSendingChat(false);
+                      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+                    }}
+                  >
+                    <IonIcon icon={sendOutline} style={{ fontSize: 16 }} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Bottom spacing */}
           <div style={{ height: "calc(100px + env(safe-area-inset-bottom))" }} />
         </div>
@@ -1117,6 +1281,18 @@ const styles = {
     backgroundColor: "#A78BFA",
     color: "#000000",
     border: "none",
+    borderRadius: 12,
+    padding: "10px",
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+    textAlign: "center",
+    transition: "opacity 0.2s ease",
+  },
+  chatPatBtn: {
+    backgroundColor: "rgba(96,165,250,0.12)",
+    border: "1px solid rgba(96,165,250,0.3)",
+    color: "#60A5FA",
     borderRadius: 12,
     padding: "10px",
     fontSize: 12,

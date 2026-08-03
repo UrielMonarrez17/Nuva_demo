@@ -1,12 +1,10 @@
-// src/App.tsx
-
-import React from 'react';
-import { Redirect, Route, Switch } from 'react-router-dom';
-import { IonApp, IonRouterOutlet, setupIonicReact, IonSpinner, IonToast } from '@ionic/react';
+import React, { useEffect } from 'react';
+import { Redirect, Route } from 'react-router-dom';
+import { IonApp, IonRouterOutlet, setupIonicReact, IonSpinner, IonToast, IonTabs, IonTabBar, IonTabButton, IonIcon, IonLabel } from '@ionic/react';
 import { IonReactRouter } from '@ionic/react-router';
 import { AppProvider, useApp } from './context/AppContext';
 import { Geolocation } from '@capacitor/geolocation';
-import { useEffect } from 'react';
+import { restaurantOutline, medkitOutline, chatbubblesOutline, personOutline } from 'ionicons/icons';
 
 // Pages
 import LoginScreen from './pages/LoginScreen';
@@ -19,51 +17,23 @@ import ProfileScreen from './pages/ProfileScreen';
 import OrdersScreen from './pages/OrdersScreen';
 import PlansScreen from './pages/PlansScreen';
 
-// Components
-import BottomNavBar from './components/BottomNavBar';
-
 /* Core CSS required for Ionic components to work properly */
 import '@ionic/react/css/core.css';
-
-/* Basic CSS for apps built with Ionic */
 import '@ionic/react/css/normalize.css';
 import '@ionic/react/css/structure.css';
 import '@ionic/react/css/typography.css';
-
-/* Optional CSS utils that can be commented out */
 import '@ionic/react/css/padding.css';
 import '@ionic/react/css/float-elements.css';
 import '@ionic/react/css/text-alignment.css';
 import '@ionic/react/css/text-transformation.css';
 import '@ionic/react/css/flex-utils.css';
 import '@ionic/react/css/display.css';
-
-/* Theme variables */
 import './theme/variables.css';
 
 setupIonicReact();
 
-/**
- * Guard component: redirects unauthenticated users to /login
- */
-function ProtectedRoute({ children, ...rest }: any) {
-  const { currentUser, loading } = useApp();
-  
-  return (
-    <Route
-      {...rest}
-      render={() => {
-        if (loading) return null;
-        if (!currentUser) return <Redirect to="/login" />;
-        return children;
-      }}
-    />
-  );
-}
-
-const MainApp: React.FC = () => {
-  const { currentUser, loading, errorMsg, setErrorMsg } = useApp() as any;
-
+const MainApp = () => {
+  const { currentUser, loading, errorMsg, setErrorMsg, activeRole } = useApp() as any;
 
   useEffect(() => {
     if (currentUser) {
@@ -83,25 +53,11 @@ const MainApp: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={styles.loadingContainer}>
-        <style>
-          {`
-            @keyframes tailwindPulse {
-              0%, 100% { opacity: 1; }
-              50% { opacity: .5; }
-            }
-            @media (min-width: 768px) {
-              .splash-logo { width: 300px !important; height: 300px !important; border-radius: 48px !important; }
-              .splash-title { font-size: 80px !important; }
-              .splash-spinner { width: 80px !important; height: 80px !important; margin-top: 48px !important; }
-              .splash-gap { gap: 48px !important; }
-            }
-          `}
-        </style>
-        <div style={styles.logoBox} className="splash-gap">
-          <img src="/logo.png" alt="NOMI Logo" style={styles.logoImg} className="splash-logo" />
-          <h1 style={styles.logoTitle} className="splash-title">NOMI</h1>
-          <IonSpinner color="warning" name="crescent" style={styles.spinner} className="splash-spinner" />
+      <div className="flex flex-col items-center justify-center h-screen bg-zinc-950 text-orange-500 gap-6">
+        <div className="flex flex-col items-center gap-4">
+          <img src="/logo.png" alt="NOMI Logo" className="w-32 h-32 object-contain rounded-3xl animate-pulse" />
+          <h1 className="text-4xl font-black tracking-widest m-0">NOMI</h1>
+          <IonSpinner color="warning" name="crescent" className="mt-6 w-10 h-10" />
         </div>
       </div>
     );
@@ -109,51 +65,49 @@ const MainApp: React.FC = () => {
 
   return (
     <IonReactRouter>
-      <IonRouterOutlet id="main-content">
-        <Route exact path="/login" render={() => (
-          currentUser ? <Redirect to="/home" /> : <LoginScreen />
-        )} />
-        
-        <Route exact path="/home" render={() => (
-          !currentUser ? <Redirect to="/login" /> : <Home />
-        )} />
-        
-        <Route exact path="/customDish/:recipeId" render={() => (
-          !currentUser ? <Redirect to="/login" /> : <CustomDishScreen />
-        )} />
-        
-        <Route exact path="/cart" render={() => (
-          !currentUser ? <Redirect to="/login" /> : <CartScreen />
-        )} />
-        
-        <Route exact path="/medical-inbox" render={() => (
-          !currentUser ? <Redirect to="/login" /> : <MedicalInboxScreen />
-        )} />
-        
-        <Route exact path="/nutri-dashboard" render={() => (
-          !currentUser ? <Redirect to="/login" /> : <NutriDashboard />
-        )} />
-        
-        <Route exact path="/profile" render={() => (
-          !currentUser ? <Redirect to="/login" /> : <ProfileScreen />
-        )} />
-        
-        <Route exact path="/orders" render={() => (
-          !currentUser ? <Redirect to="/login" /> : <OrdersScreen />
-        )} />
-        
-        <Route exact path="/plans" render={() => (
-          !currentUser ? <Redirect to="/login" /> : <PlansScreen />
-        )} />
-        
-        <Route exact path="/" render={() => (
-          <Redirect to={currentUser ? "/home" : "/login"} />
-        )} />
-      </IonRouterOutlet>
-      
-      {/* Dynamic Bottom Navbar shown only when logged in */}
-      {currentUser && <BottomNavBar />}
-      
+      {!currentUser ? (
+        <IonRouterOutlet>
+          <Route exact path="/login" component={LoginScreen} />
+          <Route render={() => <Redirect to="/login" />} />
+        </IonRouterOutlet>
+      ) : (
+        <IonTabs>
+          <IonRouterOutlet id="main-content">
+            <Route exact path="/home" component={Home} />
+            <Route exact path="/customDish/:recipeId" component={CustomDishScreen} />
+            <Route exact path="/cart" component={CartScreen} />
+            <Route exact path="/medical-inbox" component={MedicalInboxScreen} />
+            <Route exact path="/nutri-dashboard" component={NutriDashboard} />
+            <Route exact path="/profile" component={ProfileScreen} />
+            <Route exact path="/orders" component={OrdersScreen} />
+            <Route exact path="/plans" component={PlansScreen} />
+            <Route exact path="/" render={() => <Redirect to="/home" />} />
+          </IonRouterOutlet>
+
+          <IonTabBar slot="bottom" style={{ '--background': '#09090b', '--border': '1px solid #27272a' }}>
+            <IonTabButton tab="home" href="/home" style={{ '--color': '#71717a', '--color-selected': '#f97316' }}>
+              <IonIcon icon={restaurantOutline} />
+              <IonLabel>Inicio</IonLabel>
+            </IonTabButton>
+            
+            <IonTabButton tab="plans" href="/plans" style={{ '--color': '#71717a', '--color-selected': '#f97316' }}>
+              <IonIcon icon={medkitOutline} />
+              <IonLabel>Mi Plan</IonLabel>
+            </IonTabButton>
+            
+            <IonTabButton tab="chat" href={activeRole === 'nutriologist' ? '/nutri-dashboard' : '/medical-inbox'} style={{ '--color': '#71717a', '--color-selected': '#f97316' }}>
+              <IonIcon icon={chatbubblesOutline} />
+              <IonLabel>{activeRole === 'nutriologist' ? 'Pacientes' : 'Chat'}</IonLabel>
+            </IonTabButton>
+            
+            <IonTabButton tab="profile" href="/profile" style={{ '--color': '#71717a', '--color-selected': '#f97316' }}>
+              <IonIcon icon={personOutline} />
+              <IonLabel>Perfil</IonLabel>
+            </IonTabButton>
+          </IonTabBar>
+        </IonTabs>
+      )}
+
       <IonToast
         isOpen={!!errorMsg}
         message={errorMsg || ""}
@@ -166,52 +120,12 @@ const MainApp: React.FC = () => {
   );
 };
 
-const App: React.FC = () => (
+const App = () => (
   <IonApp>
     <AppProvider>
       <MainApp />
     </AppProvider>
   </IonApp>
 );
-
-const styles = {
-  loadingContainer: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100vh',
-    backgroundColor: '#FFF7ED',
-    color: '#F97316',
-    gap: 24,
-  },
-  logoBox: {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    alignItems: 'center',
-    gap: 16,
-  },
-  logoImg: {
-    width: '120px',
-    height: '120px',
-    objectFit: 'contain' as const,
-    borderRadius: '24px',
-    boxShadow: '0 10px 30px rgba(249, 115, 22, 0.15)',
-    animation: 'tailwindPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-  },
-  logoTitle: {
-    fontSize: '40px',
-    fontWeight: 900,
-    letterSpacing: '0.05em',
-    color: '#F97316',
-    margin: 0,
-    fontFamily: "'Inter', 'Roboto', sans-serif",
-  },
-  spinner: {
-    marginTop: '24px',
-    width: '36px',
-    height: '36px',
-  }
-};
 
 export default App;

@@ -286,6 +286,8 @@ export function AppProvider({ children }) {
   const [prescriptions, setPrescriptions] = useState([]);
   const [orders, setOrders] = useState([]);
   const [nutritionalPlan, setNutritionalPlan] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [activeChatPartnerId, setActiveChatPartnerId] = useState(null);
   
   // Navigation states
   const [activeRole, setActiveRole] = useState("client"); // For dual-mode (client vs nutriologist)
@@ -458,6 +460,7 @@ export function AppProvider({ children }) {
     let unsubPatients;
     let unsubOrders;
     let unsubPlans;
+    let unsubChat;
 
     try {
       // 1. Sync recipes & ingredients (read-only for normal users)
@@ -502,14 +505,14 @@ export function AppProvider({ children }) {
         setErrorMsg("Error al leer base_recipes. Verifica reglas de Firestore.");
       });
 
-      unsubIngredients = onSnapshot(collection(db, "ingredients"), (snapshot) => {
+      unsubIngredients = onSnapshot(collection(db, "master_ingredients"), (snapshot) => {
         if (!snapshot.empty) {
           const iList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           setIngredients(iList);
         }
       }, err => {
-        console.log("Firebase ingredients listen error:", err);
-        setErrorMsg("Error al leer ingredients. Verifica reglas de Firestore.");
+        console.log("Firebase master_ingredients listen error:", err);
+        setErrorMsg("Error al leer master_ingredients. Verifica reglas de Firestore.");
       });
 
       unsubRestaurants = onSnapshot(collection(db, "restaurants"), (snapshot) => {
@@ -581,8 +584,36 @@ export function AppProvider({ children }) {
       if (unsubPatients) unsubPatients();
       if (unsubOrders) unsubOrders();
       if (unsubPlans) unsubPlans();
+      if (unsubChat) unsubChat();
     };
   }, [currentUser?.uid, userProfile?.role, userProfile?.email]);
+
+  // Subscribe to chat messages when activeChatPartnerId changes
+  useEffect(() => {
+    if (!currentUser || !activeChatPartnerId) {
+      setChatMessages([]);
+      return;
+    }
+    // Conversation ID: sorted combination of both UIDs
+    const convId = [currentUser.uid, activeChatPartnerId].sort().join("_");
+    // Use Firestore real-time listener
+    const msgsRef = collection(db, "chats", convId, "messages");
+    const unsubChatLocal = onSnapshot(
+      msgsRef,
+      (snap) => {
+        const msgs = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => {
+            const ta = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
+            const tb = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
+            return ta - tb;
+          });
+        setChatMessages(msgs);
+      },
+      (err) => console.warn("Chat listener error:", err)
+    );
+    return () => unsubChatLocal();
+  }, [currentUser?.uid, activeChatPartnerId]);
 
   // --- ACTIONS ---
 
@@ -923,10 +954,17 @@ export function AppProvider({ children }) {
         const userSnap = await getDocs(userQ);
         if (!userSnap.empty) {
           const userDoc = userSnap.docs[0];
-          await updateDoc(doc(db, "users", userDoc.id), {
+          const patientUid = userDoc.id;
+          await updateDoc(doc(db, "users", patientUid), {
             nutriologistId: currentUser.uid,
             nutriologistName: userProfile?.name || "Nutriólogo Clínico"
           });
+          // Also save the patient UID in the patients document for chat lookup
+          await updateDoc(doc(db, "patients", docRef.id), {
+            patientUserId: patientUid
+          });
+          // Update local state with the UID
+          setPatients(prev => prev.map(p => p.id === docRef.id ? { ...p, patientUserId: patientUid } : p));
         }
       } catch (userErr) {
         console.warn("Failed to link patient's user profile with nutriologist:", userErr);
@@ -1163,6 +1201,32 @@ export function AppProvider({ children }) {
     }
   };
 
+  // Chat: Send a message to another user
+  const sendChatMessage = async (partnerId, text) => {
+    if (!currentUser || !text.trim()) return { success: false };
+    const convId = [currentUser.uid, partnerId].sort().join("_");
+    const newMsg = {
+      senderId: currentUser.uid,
+      senderName: userProfile?.name || currentUser.email,
+      text: text.trim(),
+      createdAt: serverTimestamp()
+    };
+    try {
+      await addDoc(collection(db, "chats", convId, "messages"), newMsg);
+      // Also update conversation metadata
+      await setDoc(doc(db, "chats", convId), {
+        participants: [currentUser.uid, partnerId],
+        lastMessage: text.trim(),
+        lastMessageAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      return { success: true };
+    } catch (e) {
+      console.warn("Failed to send chat message:", e);
+      return { success: false, error: e.message };
+    }
+  };
+
   const registerRestaurantPending = async (name, email, password, restaurantName, address, lat, lng) => {
     setLoading(true);
     try {
@@ -1213,6 +1277,9 @@ export function AppProvider({ children }) {
         activeRole,
         patientSelector,
         addresses,
+        chatMessages,
+        activeChatPartnerId,
+        setActiveChatPartnerId,
         setPatientSelector,
         login,
         loginWithGoogle,
@@ -1234,7 +1301,8 @@ export function AppProvider({ children }) {
         createNutritionalPlan,
         autoGeneratePlan,
         registerRestaurant,
-        registerRestaurantPending
+        registerRestaurantPending,
+        sendChatMessage
       }}
     >
       {children}

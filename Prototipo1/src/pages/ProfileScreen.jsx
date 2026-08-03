@@ -184,6 +184,22 @@ export default function ProfileScreen() {
             </div>
           )}
 
+          {/* Order History */}
+          <div style={styles.section}>
+            <div 
+              style={styles.menuItem} 
+              onClick={() => history.push("/orders")}
+            >
+              <div style={styles.menuItemLeft}>
+                <div style={{...styles.iconWrapper, backgroundColor: "rgba(167, 139, 250, 0.1)", color: "#A78BFA"}}>
+                  <IonIcon icon={bagHandleOutline} />
+                </div>
+                <span>Mis Pedidos</span>
+              </div>
+              <IonIcon icon={chevronForwardOutline} style={styles.chevron} />
+            </div>
+          </div>
+
           {/* Saved Addresses List */}
           <div style={styles.section}>
             <h3 style={styles.sectionTitle}>Direcciones Guardadas</h3>
